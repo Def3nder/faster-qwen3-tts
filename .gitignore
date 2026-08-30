@@ -2,6 +2,7 @@ models/
 sample_*.wav
 *.wav
 !ref_audio.wav
+*.egg-info/
 *.json
 __pycache__/
 *.pyc
@@ -10,3 +11,6 @@ __pycache__/
 outputs/
 artifacts/
 packages/qwentts_cpp_python/
+input/
+output/
+voices/
