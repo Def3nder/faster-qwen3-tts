@@ -28,30 +28,38 @@ if !HAS_UV! equ 0 (
     )
 )
 
-REM Create venv + install deps (skip if venv already exists)
+REM Create the venv if needed, then always sync project and test dependencies.
+set "VENV_CREATED=0"
 if exist ".venv\Scripts\python.exe" (
-    echo Venv already exists, skipping install. Delete .venv to force reinstall.
+    echo Venv already exists, updating dependencies.
 ) else (
-    echo Creating venv and installing dependencies...
+    echo Creating venv...
+    set "VENV_CREATED=1"
     if !HAS_UV! equ 1 (
         uv venv .venv --python 3.10
         echo Installing PyTorch with CUDA support...
         uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128 --python .venv\Scripts\python.exe
-        uv pip install -e . --python .venv\Scripts\python.exe
-        
-        echo Attempting to install flash-attn ^(optional^)...
-        uv pip install flash-attn --python .venv\Scripts\python.exe 2>nul && echo   flash-attn installed || echo   flash-attn not available ^(ok, will use manual attention^)
     ) else (
         python -m venv .venv
-        call .venv\Scripts\activate.bat
-        python -m pip install --upgrade pip
+        .venv\Scripts\python.exe -m pip install --upgrade pip
         echo Installing PyTorch with CUDA support...
-        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-        pip install -e .
-        
-        echo Attempting to install flash-attn ^(optional^)...
-        pip install flash-attn 2>nul && echo   flash-attn installed || echo   flash-attn not available ^(ok, will use manual attention^)
-        call deactivate
+        .venv\Scripts\python.exe -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+    )
+)
+
+echo Installing project and test dependencies...
+if !HAS_UV! equ 1 (
+    uv pip install -e ".[test]" --python .venv\Scripts\python.exe
+) else (
+    .venv\Scripts\python.exe -m pip install -e ".[test]"
+)
+
+if !VENV_CREATED! equ 1 (
+    echo Attempting to install flash-attn ^(optional^)...
+    if !HAS_UV! equ 1 (
+        uv pip install flash-attn --python .venv\Scripts\python.exe 2>nul && echo   flash-attn installed || echo   flash-attn not available ^(ok, will use manual attention^)
+    ) else (
+        .venv\Scripts\python.exe -m pip install flash-attn 2>nul && echo   flash-attn installed || echo   flash-attn not available ^(ok, will use manual attention^)
     )
 )
 

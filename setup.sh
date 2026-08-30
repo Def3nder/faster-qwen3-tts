@@ -14,14 +14,20 @@ if ! command -v uv &>/dev/null; then
     exit 1
 fi
 
-# Create venv + install deps (skip if venv already exists)
+# Create the venv if needed, then always sync project and test dependencies.
+VENV_CREATED=0
 if [ -f "$DIR/.venv/bin/python" ]; then
-    echo "Venv already exists, skipping install. Delete .venv to force reinstall."
+    echo "Venv already exists, updating dependencies."
 else
-    echo "Creating venv and installing dependencies..."
+    echo "Creating venv..."
     uv venv .venv --python 3.10
-    uv pip install -e . --python .venv/bin/python
+    VENV_CREATED=1
+fi
 
+echo "Installing project and test dependencies..."
+uv pip install -e ".[test]" --python .venv/bin/python
+
+if [ "$VENV_CREATED" -eq 1 ]; then
     # Install flash-attn if possible (optional, speeds up attention on datacenter GPUs)
     echo "Attempting to install flash-attn (optional)..."
     uv pip install flash-attn --python .venv/bin/python 2>/dev/null && echo "  flash-attn installed" || echo "  flash-attn not available (ok, will use manual attention)"

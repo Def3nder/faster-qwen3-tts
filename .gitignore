@@ -8,6 +8,8 @@ __pycache__/
 *.pyc
 .venv/
 .cache/
+.coverage
+.pytest_cache/
 outputs/
 artifacts/
 packages/qwentts_cpp_python/

@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 import numpy as np
+import pytest
 import soundfile as sf
 
 
@@ -220,6 +221,188 @@ class GenerateMp3WithEmbeddingTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "between 1 and 3000"):
                 MODULE.load_config(config_path)
+
+    def test_parser_accepts_generation_and_reference_arguments(self):
+        parser = MODULE.build_parser()
+
+        args = parser.parse_args(
+            [
+                "--text",
+                "Hallo.",
+                "--output",
+                "out.mp3",
+                "--dtype",
+                "float16",
+                "--seed",
+                "42",
+                "--mode",
+                "semantic_icl",
+                "--generation-api",
+                "non_streaming",
+                "--target-chars",
+                "300",
+                "--ref-audio",
+                "reference.wav",
+                "--ref-text-file",
+                "reference.txt",
+                "--instruct",
+                "Ruhig sprechen",
+                "--metrics",
+                "metrics.json",
+                "--no-wav-parts",
+            ]
+        )
+
+        self.assertEqual(args.dtype, "float16")
+        self.assertEqual(args.seed, 42)
+        self.assertEqual(args.mode, "semantic_icl")
+        self.assertEqual(args.generation_api, "non_streaming")
+        self.assertEqual(args.target_chars, 300)
+        self.assertEqual(args.ref_audio, Path("reference.wav"))
+        self.assertEqual(args.ref_text_file, Path("reference.txt"))
+        self.assertEqual(args.instruct, "Ruhig sprechen")
+        self.assertEqual(args.metrics, Path("metrics.json"))
+        self.assertTrue(args.no_wav_parts)
+
+    def test_parser_rejects_missing_text_source(self):
+        parser = MODULE.build_parser()
+
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--output", "out.mp3"])
+
+    def test_resolve_text_supports_direct_text_and_reports_input_errors(self):
+        self.assertEqual(MODULE.resolve_text("  Direkt eingegeben  ", None), "Direkt eingegeben")
+
+        with self.assertRaisesRegex(ValueError, "must not be empty"):
+            MODULE.resolve_text("   ", None)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            missing = directory / "missing.txt"
+            with self.assertRaisesRegex(ValueError, "not found"):
+                MODULE.resolve_text(None, missing)
+
+            invalid_utf8 = directory / "invalid.txt"
+            invalid_utf8.write_bytes(b"\xff\xfe\xfa")
+            with self.assertRaisesRegex(ValueError, "not valid UTF-8"):
+                MODULE.resolve_text(None, invalid_utf8)
+
+    def test_load_config_reports_file_and_json_errors(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            missing = directory / "missing.json"
+            with self.assertRaisesRegex(ValueError, "config file not found"):
+                MODULE.load_config(missing)
+
+            invalid = directory / "invalid.json"
+            invalid.write_text("{not-json", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "invalid JSON"):
+                MODULE.load_config(invalid)
+
+            non_object = directory / "array.json"
+            non_object.write_text("[]", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "JSON object"):
+                MODULE.load_config(non_object)
+
+    def test_load_config_rejects_invalid_types_values_and_dependencies(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            speaker = directory / "voice.pt"
+            speaker.touch()
+            cases = [
+                ({"temperature": "hot"}, "must be float"),
+                ({"top_k": True}, "must be int"),
+                ({"do_sample": 1}, "must be bool"),
+                ({"dtype": "int8"}, "dtype.*one of"),
+                ({"mode": "unknown"}, "mode.*one of"),
+                ({"generation_api": "batch"}, "generation_api.*one of"),
+                ({"seed_strategy": "random"}, "seed_strategy.*one of"),
+                ({"parts_directory_policy": "archive"}, "parts_directory_policy.*one of"),
+                ({"temperature": -0.1}, "temperature.*>= 0"),
+                ({"top_k": -1}, "top_k.*>= 0"),
+                ({"top_p": 0.0}, r"top_p.*\(0, 1]"),
+                ({"repetition_penalty": 0.0}, "repetition_penalty.*> 0"),
+                ({"min_new_tokens": -1}, "token limits"),
+                ({"warmup_max_new_tokens": 0}, "token limits"),
+                ({"max_new_tokens": 0}, "token limits"),
+                ({"model_max_seq_len": 0}, "token limits"),
+                ({"model_max_seq_len": 768}, "greater than.*max_new_tokens"),
+                ({"codec_context_frames": -1}, "codec_context_frames.*>= 0"),
+                ({"legacy_chunk_chars": 0}, "chunk sizes"),
+                ({"min_chunk_chars": 400, "target_chunk_chars": 300}, "min_chunk_chars"),
+                ({"sentence_pause_ms": -1}, "pause, fade, trim"),
+                ({"loudness_match_max_db": -0.1}, "loudness_match_max_db.*>= 0"),
+                ({"generation_api": "streaming"}, "text preroll requires"),
+                ({"text_preroll_sentence": " "}, "text_preroll_sentence.*empty"),
+                ({"text_preroll_min_pause_ms": 0}, "text_preroll_min_pause_ms.*> 0"),
+                ({"text_preroll_search_window_ms": -1}, "search window and lead-in"),
+                ({"text_preroll_lead_in_ms": -1}, "search window and lead-in"),
+                ({"chunk_end_padding_text": "."}, "must be exactly"),
+            ]
+
+            for index, (overrides, message) in enumerate(cases):
+                with self.subTest(overrides=overrides):
+                    config_path = directory / f"invalid-{index}.json"
+                    _write_config(config_path, speaker, **overrides)
+                    with self.assertRaisesRegex(ValueError, message):
+                        MODULE.load_config(config_path)
+
+    def test_load_config_resolves_speaker_fallback_and_icl_files(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            speaker = directory / "narrator-1.7B.pt"
+            speaker.touch()
+            ref_audio = directory / "reference.wav"
+            ref_audio.touch()
+            ref_text_file = directory / "reference.txt"
+            ref_text_file.write_text("\ufeff  Exakter Referenztext.  ", encoding="utf-8")
+            config_path = directory / "config.json"
+            _write_config(
+                config_path,
+                Path("narrator"),
+                mode="semantic_icl",
+                ref_audio="reference.wav",
+                ref_text_file="reference.txt",
+            )
+
+            config = MODULE.load_config(config_path)
+
+            self.assertEqual(config["speaker"], speaker)
+            self.assertEqual(config["ref_audio"], ref_audio)
+            self.assertEqual(config["ref_text_file"], ref_text_file)
+            self.assertEqual(config["ref_text"], "Exakter Referenztext.")
+
+    def test_load_config_reports_missing_speaker_reference_and_icl_text(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            speaker = directory / "voice.pt"
+            speaker.touch()
+
+            missing_speaker_config = directory / "missing-speaker.json"
+            _write_config(missing_speaker_config, Path("missing.pt"))
+            with self.assertRaisesRegex(ValueError, "speaker embedding not found"):
+                MODULE.load_config(missing_speaker_config)
+
+            missing_reference_config = directory / "missing-reference.json"
+            _write_config(
+                missing_reference_config,
+                speaker,
+                ref_audio="missing.wav",
+            )
+            with self.assertRaisesRegex(ValueError, "does not exist"):
+                MODULE.load_config(missing_reference_config)
+
+            ref_audio = directory / "reference.wav"
+            ref_audio.touch()
+            missing_text_config = directory / "missing-text.json"
+            _write_config(
+                missing_text_config,
+                speaker,
+                mode="semantic_icl",
+                ref_audio=str(ref_audio),
+            )
+            with self.assertRaisesRegex(ValueError, "requires both ref_audio"):
+                MODULE.load_config(missing_text_config)
 
     def test_chunk_text_keeps_complete_paragraphs(self):
         first = "Erster Absatz."
@@ -763,6 +946,936 @@ class GenerateMp3WithEmbeddingTests(unittest.TestCase):
 
             self.assertTrue(output.is_file())
             self.assertFalse(parts_directory.exists())
+
+    def test_load_xvector_prompt_accepts_valid_tensor_and_rejects_wrong_size(self):
+        import torch
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            valid_path = directory / "valid.pt"
+            valid_embedding = torch.arange(2048, dtype=torch.float32)
+            torch.save(valid_embedding, valid_path)
+
+            prompt = MODULE.load_xvector_prompt(valid_path, "cpu")
+
+            self.assertTrue(torch.equal(prompt["ref_spk_embedding"][0], valid_embedding))
+            self.assertEqual(prompt["ref_code"], [None])
+            self.assertEqual(prompt["x_vector_only_mode"], [True])
+            self.assertEqual(prompt["icl_mode"], [False])
+
+            invalid_path = directory / "invalid.pt"
+            torch.save(torch.zeros(16), invalid_path)
+            with self.assertRaisesRegex(ValueError, "2048-element"):
+                MODULE.load_xvector_prompt(invalid_path, "cpu")
+
+    def test_load_voice_prompt_selects_xvector_loader(self):
+        sentinel = object()
+        config = {
+            **MODULE.DEFAULT_CONFIG,
+            "mode": "semantic",
+            "speaker": Path("voice.pt"),
+            "device": "cpu",
+        }
+
+        with mock.patch.object(
+            MODULE, "load_xvector_prompt", return_value=sentinel
+        ) as loader:
+            result = MODULE.load_voice_prompt(mock.Mock(), config)
+
+        self.assertIs(result, sentinel)
+        loader.assert_called_once_with(Path("voice.pt"), device="cpu")
+
+    def test_load_voice_prompt_builds_mono_icl_prompt_with_appended_silence(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            reference = Path(temp_dir) / "reference.wav"
+            stereo = np.column_stack(
+                [
+                    np.full(100, 0.2, dtype=np.float32),
+                    np.full(100, 0.4, dtype=np.float32),
+                ]
+            )
+            sf.write(reference, stereo, 1000, subtype="FLOAT")
+            config = {
+                **MODULE.DEFAULT_CONFIG,
+                "mode": "semantic_icl",
+                "ref_audio": reference,
+                "ref_text": "Exakter Text.",
+                "icl_append_silence_ms": 50,
+            }
+            model = mock.Mock()
+            model.model.create_voice_clone_prompt.return_value = {"prompt": "icl"}
+
+            result = MODULE.load_voice_prompt(model, config)
+
+            self.assertEqual(result, {"prompt": "icl"})
+            kwargs = model.model.create_voice_clone_prompt.call_args.kwargs
+            audio, sample_rate = kwargs["ref_audio"]
+            self.assertEqual(sample_rate, 1000)
+            self.assertEqual(audio.shape, (150,))
+            np.testing.assert_allclose(audio[:100], 0.3, atol=1e-6)
+            np.testing.assert_array_equal(audio[100:], np.zeros(50, dtype=np.float32))
+            self.assertEqual(kwargs["ref_text"], "Exakter Text.")
+            self.assertFalse(kwargs["x_vector_only_mode"])
+
+    def test_write_mp3_wraps_encoder_errors(self):
+        with mock.patch("soundfile.write", side_effect=RuntimeError("encoder failed")):
+            with self.assertRaisesRegex(RuntimeError, "MP3 encoding failed"):
+                MODULE.write_mp3(Path("out.mp3"), np.zeros(10, dtype=np.float32), 24000)
+
+    def test_delete_parts_directory_rejects_unsafe_paths(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            output = directory / "result.mp3"
+            expected_parts = directory / "result_parts"
+
+            with self.assertRaisesRegex(RuntimeError, "completed MP3"):
+                MODULE.delete_parts_directory(expected_parts, output)
+
+            output.write_bytes(b"mp3")
+            unexpected = directory / "other_parts"
+            unexpected.mkdir()
+            with self.assertRaisesRegex(RuntimeError, "unexpected parts directory"):
+                MODULE.delete_parts_directory(unexpected, output)
+
+            MODULE.delete_parts_directory(expected_parts, output)
+
+            expected_parts.write_text("not a directory", encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "not a directory"):
+                MODULE.delete_parts_directory(expected_parts, output)
+
+    def test_audio_conversion_silence_trimming_loudness_and_fades(self):
+        import torch
+
+        tensor = torch.tensor([[0.1, -0.2]], dtype=torch.float64)
+        converted = MODULE._to_float32_audio(tensor)
+        self.assertEqual(converted.dtype, np.float32)
+        np.testing.assert_allclose(converted, [0.1, -0.2])
+
+        self.assertEqual(MODULE.edge_silence_samples(np.zeros(0), -50.0), (0, 0))
+        self.assertEqual(MODULE.edge_silence_samples(np.zeros(10), -50.0), (10, 10))
+
+        audio = np.concatenate(
+            [
+                np.zeros(100, dtype=np.float32),
+                np.full(100, 0.2, dtype=np.float32),
+                np.zeros(80, dtype=np.float32),
+            ]
+        )
+        trimmed = MODULE.trim_excess_edge_silence(
+            audio,
+            1000,
+            threshold_db=-50.0,
+            max_leading_ms=10,
+            max_trailing_ms=20,
+        )
+        self.assertEqual(len(trimmed), 130)
+        self.assertEqual(MODULE.edge_silence_samples(trimmed, -50.0), (10, 20))
+
+        adjusted, adjusted_rms = MODULE.match_chunk_loudness(
+            np.full(20, 0.1, dtype=np.float32),
+            0.2,
+            threshold_db=-50.0,
+            max_adjustment_db=3.0,
+        )
+        expected_level = 0.1 * 10 ** (3.0 / 20)
+        np.testing.assert_allclose(adjusted, expected_level, rtol=1e-6)
+        self.assertAlmostEqual(adjusted_rms, expected_level, places=6)
+
+        faded = MODULE._apply_edge_fades(np.ones(10, dtype=np.float32), 1000, 3)
+        self.assertEqual(float(faded[0]), 0.0)
+        self.assertEqual(float(faded[-1]), 0.0)
+        self.assertEqual(float(faded[4]), 1.0)
+
+    def test_join_audio_chunks_handles_all_boundaries_empty_input_and_crossfade(self):
+        empty = MODULE.join_audio_chunks([], [], 1000, MODULE.DEFAULT_CONFIG)
+        self.assertEqual(empty.dtype, np.float32)
+        self.assertEqual(len(empty), 0)
+
+        first = np.full(10, 0.2, dtype=np.float32)
+        second = np.full(10, 0.3, dtype=np.float32)
+        pause_by_boundary = {
+            "sentence": MODULE.DEFAULT_CONFIG["sentence_pause_ms"],
+            "paragraph": MODULE.DEFAULT_CONFIG["paragraph_pause_ms"],
+            "topic": MODULE.DEFAULT_CONFIG["topic_pause_ms"],
+        }
+        for boundary, pause_ms in pause_by_boundary.items():
+            with self.subTest(boundary=boundary):
+                config = {**MODULE.DEFAULT_CONFIG, "edge_fade_ms": 0}
+                joined = MODULE.join_audio_chunks(
+                    [first, second],
+                    [MODULE.TextChunk("eins", boundary), MODULE.TextChunk("zwei", "end")],
+                    1000,
+                    config,
+                )
+                self.assertEqual(len(joined), 20 + pause_ms)
+
+        crossfade_config = {
+            **MODULE.DEFAULT_CONFIG,
+            "edge_fade_ms": 0,
+            "crossfade_ms": 5,
+        }
+        crossfaded = MODULE.join_audio_chunks(
+            [first, second],
+            [MODULE.TextChunk("eins", "end"), MODULE.TextChunk("zwei", "end")],
+            1000,
+            crossfade_config,
+        )
+        self.assertEqual(len(crossfaded), 15)
+        self.assertEqual(crossfaded.dtype, np.float32)
+
+    def test_streaming_generation_collects_audio_and_timings(self):
+        model = mock.Mock()
+        model.generate_voice_clone_streaming.return_value = iter(
+            [
+                (
+                    np.array([0.1, 0.2], dtype=np.float32),
+                    24000,
+                    {"steps": 1, "prefill_ms": 2.0, "decode_s": 0.01, "ms_per_step": 10.0},
+                ),
+                (
+                    np.array([0.3], dtype=np.float32),
+                    24000,
+                    {"steps": 2, "prefill_ms": 3.0, "decode_s": 0.02, "ms_per_step": 11.0},
+                ),
+            ]
+        )
+        config = {**MODULE.DEFAULT_CONFIG, "instruct": "Ruhig"}
+
+        audio, sample_rate, timing = MODULE._generate_audio_chunk_streaming(
+            model,
+            {"voice": "prompt"},
+            "Hallo.",
+            config,
+            run_warmup=True,
+            seed=123,
+        )
+
+        np.testing.assert_allclose(audio, [0.1, 0.2, 0.3])
+        self.assertEqual(sample_rate, 24000)
+        self.assertEqual(timing["steps"], 2)
+        self.assertEqual(timing["prefill_ms"], 3.0)
+        self.assertEqual(timing["decode_s"], 0.02)
+        self.assertGreaterEqual(timing["warmup_s"], 0.0)
+        model.warmup.assert_called_once_with(prefill_len=100)
+        kwargs = model.generate_voice_clone_streaming.call_args.kwargs
+        self.assertEqual(kwargs["text"], "Hallo.")
+        self.assertEqual(kwargs["instruct"], "Ruhig")
+        self.assertEqual(kwargs["max_new_tokens"], config["max_new_tokens"])
+
+    def test_streaming_generation_rejects_empty_audio_and_sample_rate_changes(self):
+        config = {**MODULE.DEFAULT_CONFIG}
+        model = mock.Mock()
+        model.generate_voice_clone_streaming.return_value = iter([])
+        with self.assertRaisesRegex(RuntimeError, "returned no audio"):
+            MODULE._generate_audio_chunk_streaming(
+                model, {}, "Hallo.", config, run_warmup=False, seed=1
+            )
+
+        model.generate_voice_clone_streaming.return_value = iter(
+            [
+                (np.ones(2, dtype=np.float32), 24000, {}),
+                (np.ones(2, dtype=np.float32), 16000, {}),
+            ]
+        )
+        with self.assertRaisesRegex(RuntimeError, "sample rate changed"):
+            MODULE._generate_audio_chunk_streaming(
+                model, {}, "Hallo.", config, run_warmup=False, seed=1
+            )
+
+    def test_find_pause_cut_selects_nearest_pause_and_handles_no_candidate(self):
+        active = np.full(100, 0.2, dtype=np.float32)
+        silence = np.zeros(200, dtype=np.float32)
+        audio = np.concatenate([active, silence, active, silence, active])
+
+        cut = MODULE.find_pause_cut(
+            audio,
+            1000,
+            expected_pause_start_sample=410,
+            search_window_ms=50,
+            min_pause_ms=100,
+            lead_in_ms=10,
+            threshold_db=-50.0,
+        )
+
+        self.assertIsNotNone(cut)
+        self.assertGreaterEqual(cut.pause_start_sample, 390)
+        self.assertLessEqual(cut.pause_start_sample, 410)
+        self.assertEqual(cut.cut_sample, cut.pause_end_sample - 10)
+        self.assertIsNone(
+            MODULE.find_pause_cut(
+                np.ones(100, dtype=np.float32),
+                1000,
+                expected_pause_start_sample=50,
+                search_window_ms=50,
+                min_pause_ms=20,
+                lead_in_ms=0,
+                threshold_db=-50.0,
+            )
+        )
+        self.assertIsNone(
+            MODULE.find_pause_cut(
+                np.zeros(0, dtype=np.float32),
+                0,
+                expected_pause_start_sample=0,
+                search_window_ms=0,
+                min_pause_ms=20,
+                lead_in_ms=0,
+                threshold_db=-50.0,
+            )
+        )
+
+    def test_text_preroll_calibrates_once_and_reuses_cut_for_later_chunks(self):
+        calls = []
+        base_timing = {
+            "steps": 1,
+            "prefill_ms": 1.0,
+            "decode_s": 0.01,
+            "ms_per_step": 10.0,
+            "codec_decode_s": 0.01,
+            "warmup_s": 0.2,
+            "tts_wall_s": 0.5,
+        }
+
+        def original_generator(*args, **kwargs):
+            calls.append((args[2], kwargs["run_warmup"]))
+            if len(calls) == 1:
+                audio = np.concatenate(
+                    [np.full(100, 0.2, dtype=np.float32), np.zeros(200, dtype=np.float32)]
+                )
+            else:
+                audio = np.concatenate(
+                    [
+                        np.full(100, 0.2, dtype=np.float32),
+                        np.zeros(200, dtype=np.float32),
+                        np.full(100, 0.1, dtype=np.float32),
+                    ]
+                )
+            return audio, 1000, dict(base_timing)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            generator = MODULE.TextPrerollChunkGenerator(
+                original_generator,
+                sentence="Kalibrierung",
+                search_window_ms=50,
+                min_pause_ms=100,
+                lead_in_ms=0,
+                debug_directory=Path(temp_dir),
+                save_debug_wav=False,
+            )
+            config = {**MODULE.DEFAULT_CONFIG, "silence_threshold_db": -50.0}
+
+            first_audio, _, first_timing = generator(
+                mock.Mock(), {}, "Erstes Ziel.", config, mock.Mock(), run_warmup=True, seed=1
+            )
+            second_audio, _, second_timing = generator(
+                mock.Mock(), {}, "Zweites Ziel.", config, mock.Mock(), run_warmup=False, seed=2
+            )
+
+        self.assertEqual(generator.sentence, "Kalibrierung.")
+        self.assertEqual(
+            [text for text, _ in calls],
+            [
+                "Kalibrierung.",
+                "Kalibrierung.\n\nErstes Ziel.",
+                "Kalibrierung.\n\nZweites Ziel.",
+            ],
+        )
+        self.assertEqual([warmup for _, warmup in calls], [True, False, False])
+        self.assertEqual(len(first_audio), 100)
+        self.assertEqual(len(second_audio), 100)
+        self.assertEqual(first_timing["tts_wall_s"], 1.0)
+        self.assertEqual(second_timing["tts_wall_s"], 0.5)
+
+    def test_text_preroll_reports_cut_failure_and_sample_rate_change(self):
+        timing = {
+            "steps": 1,
+            "prefill_ms": 1.0,
+            "decode_s": 0.01,
+            "ms_per_step": 10.0,
+            "codec_decode_s": 0.01,
+            "warmup_s": 0.0,
+            "tts_wall_s": 0.1,
+        }
+        calibration = np.concatenate(
+            [np.full(100, 0.2, dtype=np.float32), np.zeros(100, dtype=np.float32)]
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            failing_generator = mock.Mock(
+                side_effect=[
+                    (calibration, 1000, dict(timing)),
+                    (np.ones(200, dtype=np.float32), 1000, dict(timing)),
+                ]
+            )
+            wrapper = MODULE.TextPrerollChunkGenerator(
+                failing_generator,
+                sentence="Kalibrierung.",
+                search_window_ms=50,
+                min_pause_ms=50,
+                lead_in_ms=0,
+                debug_directory=directory,
+                save_debug_wav=False,
+            )
+            with mock.patch.object(MODULE, "find_pause_cut", return_value=None):
+                with self.assertRaisesRegex(RuntimeError, "no suitable text-preroll pause"):
+                    wrapper(
+                        mock.Mock(),
+                        {},
+                        "Ziel.",
+                        MODULE.DEFAULT_CONFIG,
+                        mock.Mock(),
+                        run_warmup=False,
+                        seed=1,
+                    )
+            self.assertTrue(
+                (directory / "text-preroll-cut-failed-chunk-001.wav").is_file()
+            )
+
+            rate_changing_generator = mock.Mock(
+                side_effect=[
+                    (calibration, 1000, dict(timing)),
+                    (np.ones(200, dtype=np.float32), 2000, dict(timing)),
+                ]
+            )
+            wrapper = MODULE.TextPrerollChunkGenerator(
+                rate_changing_generator,
+                sentence="Kalibrierung.",
+                search_window_ms=50,
+                min_pause_ms=50,
+                lead_in_ms=0,
+                debug_directory=directory,
+                save_debug_wav=False,
+            )
+            with self.assertRaisesRegex(RuntimeError, "sample rate changed"):
+                wrapper(
+                    mock.Mock(),
+                    {},
+                    "Ziel.",
+                    MODULE.DEFAULT_CONFIG,
+                    mock.Mock(),
+                    run_warmup=False,
+                    seed=1,
+                )
+
+    def test_generate_audio_chunk_warmup_sampling_ref_codes_and_empty_tokens(self):
+        import torch
+
+        class FakeTokenizer:
+            def __init__(self):
+                self.inputs = []
+
+            def decode(self, payload):
+                codes = payload["audio_codes"].squeeze(0).clone()
+                self.inputs.append(codes)
+                return [np.arange(codes.shape[0] * 10, dtype=np.float32)], 24000
+
+        tokenizer = FakeTokenizer()
+        prepared_model = mock.Mock()
+        prepared_model.speech_tokenizer = tokenizer
+        model = mock.Mock()
+        ref_codes = torch.tensor([[9], [8]])
+        model._prepare_generation.return_value = (
+            prepared_model,
+            mock.Mock(),
+            mock.Mock(),
+            torch.zeros((1, 3, 2)),
+            mock.Mock(),
+            mock.Mock(),
+            mock.Mock(),
+            ref_codes,
+        )
+        timing = {
+            "steps": 3,
+            "prefill_ms": 1.0,
+            "decode_s": 0.03,
+            "ms_per_step": 10.0,
+        }
+        fast_generate = mock.Mock(
+            side_effect=[
+                (torch.tensor([[7]]), dict(timing)),
+                (torch.tensor([[1], [2], [3]]), dict(timing)),
+            ]
+        )
+        config = {**MODULE.DEFAULT_CONFIG, "codec_context_frames": 0}
+        context_state = {"codes": torch.tensor([[99]])}
+
+        audio, sample_rate, result_timing = MODULE._generate_audio_chunk(
+            model,
+            {},
+            "Hallo.",
+            config,
+            fast_generate,
+            run_warmup=True,
+            seed=123,
+            codec_context_state=context_state,
+        )
+
+        model.warmup.assert_called_once_with(prefill_len=100)
+        self.assertEqual(fast_generate.call_count, 2)
+        self.assertEqual(
+            fast_generate.call_args_list[0].kwargs["max_new_tokens"],
+            config["warmup_max_new_tokens"],
+        )
+        self.assertEqual(
+            fast_generate.call_args_list[1].kwargs["max_new_tokens"],
+            config["max_new_tokens"],
+        )
+        self.assertEqual(tokenizer.inputs[0].flatten().tolist(), [9, 8, 1, 2, 3])
+        self.assertEqual(len(audio), 30)
+        self.assertEqual(sample_rate, 24000)
+        self.assertIsNone(context_state["codes"])
+        self.assertEqual(result_timing["codec_context_frames"], 0)
+        self.assertGreaterEqual(result_timing["warmup_s"], 0.0)
+
+        empty_generator = mock.Mock(
+            return_value=(torch.empty((0, 1), dtype=torch.long), dict(timing))
+        )
+        with self.assertRaisesRegex(RuntimeError, "returned no tokens"):
+            MODULE._generate_audio_chunk(
+                model,
+                {},
+                "Hallo.",
+                config,
+                empty_generator,
+                run_warmup=False,
+                seed=123,
+            )
+
+    def test_text_helpers_reject_invalid_inputs_and_preserve_boundaries(self):
+        with self.assertRaisesRegex(ValueError, "max_chars"):
+            MODULE.chunk_text("Hallo.", max_chars=0)
+        with self.assertRaisesRegex(ValueError, "must not be empty"):
+            MODULE.chunk_text("   ")
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            MODULE.chunk_text("Hallo.", sentences_per_chunk=0)
+
+        self.assertTrue(MODULE._looks_like_heading("# Überschrift"))
+        self.assertTrue(MODULE._looks_like_heading("2. Neues Thema"))
+        self.assertFalse(MODULE._looks_like_heading("Das ist ein normaler Satz."))
+        with self.assertRaisesRegex(ValueError, "without breaking a word"):
+            MODULE._split_long_sentence("A" * 101, 100)
+
+        with self.assertRaisesRegex(ValueError, "semantic sizes"):
+            MODULE.semantic_chunk_text("Hallo.", min_chars=20, target_chars=10, max_chars=30)
+        with self.assertRaisesRegex(ValueError, "must not be empty"):
+            MODULE.semantic_chunk_text("   ")
+
+        semantic_config = {**MODULE.DEFAULT_CONFIG, "mode": "semantic"}
+        with self.assertRaisesRegex(ValueError, "--sentences"):
+            MODULE.build_text_chunks("Hallo.", semantic_config, sentences_per_chunk=1)
+        with self.assertRaisesRegex(ValueError, "--padding"):
+            MODULE.build_text_chunks("Hallo.", semantic_config, padding=True)
+
+        legacy_config = {
+            **MODULE.DEFAULT_CONFIG,
+            "mode": "legacy",
+            "legacy_chunk_chars": 10,
+        }
+        legacy = MODULE.build_text_chunks("Eins.\n\nZwei.", legacy_config)
+        self.assertEqual([chunk.boundary_after for chunk in legacy], ["paragraph", "end"])
+
+    def test_prepare_generation_text_disabled_and_idempotent(self):
+        disabled = {**MODULE.DEFAULT_CONFIG, "append_chunk_end_padding": False}
+        self.assertEqual(MODULE.prepare_generation_text("Hallo.  ", disabled), "Hallo.")
+
+        enabled = {**MODULE.DEFAULT_CONFIG, "append_chunk_end_padding": True}
+        prepared = MODULE.prepare_generation_text("Hallo.", enabled)
+        self.assertEqual(prepared, "Hallo.\n\n.")
+        self.assertEqual(MODULE.prepare_generation_text(prepared, enabled), prepared)
+
+    def test_generate_mp3_uses_streaming_backend_and_incrementing_seeds(self):
+        import faster_qwen3_tts
+
+        timing = {
+            "steps": 1,
+            "prefill_ms": 1.0,
+            "decode_s": 0.01,
+            "ms_per_step": 10.0,
+            "codec_decode_s": 0.0,
+            "warmup_s": 0.0,
+            "tts_wall_s": 0.01,
+        }
+        generated = [
+            (np.full(800, 0.1, dtype=np.float32), 8000, dict(timing)),
+            (np.full(800, 0.2, dtype=np.float32), 8000, dict(timing)),
+        ]
+        config = {
+            **MODULE.DEFAULT_CONFIG,
+            "speaker": Path("voice.pt"),
+            "generation_api": "streaming",
+            "text_preroll_enabled": False,
+            "append_chunk_end_padding": False,
+            "save_wav_parts": False,
+            "seed": 40,
+            "seed_strategy": "increment",
+            "edge_fade_ms": 0,
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "streaming.mp3"
+            fake_model = mock.Mock()
+            with (
+                mock.patch.object(
+                    faster_qwen3_tts.FasterQwen3TTS,
+                    "from_pretrained",
+                    return_value=fake_model,
+                ),
+                mock.patch.object(MODULE, "load_voice_prompt", return_value={}),
+                mock.patch.object(
+                    MODULE,
+                    "_generate_audio_chunk_streaming",
+                    side_effect=generated,
+                ) as streaming_generator,
+                mock.patch.object(MODULE, "_generate_audio_chunk") as non_streaming_generator,
+                mock.patch("builtins.print"),
+            ):
+                report = MODULE.generate_mp3(
+                    [
+                        MODULE.TextChunk("Erster.", "paragraph"),
+                        MODULE.TextChunk("Zweiter.", "end"),
+                    ],
+                    output,
+                    config,
+                )
+
+            self.assertTrue(output.is_file())
+            self.assertEqual(streaming_generator.call_count, 2)
+            non_streaming_generator.assert_not_called()
+            self.assertEqual(
+                [call.kwargs["seed"] for call in streaming_generator.call_args_list],
+                [40, 41],
+            )
+            self.assertEqual(
+                [call.args[2] for call in streaming_generator.call_args_list],
+                ["Erster.", "Zweiter."],
+            )
+            self.assertEqual([chunk["seed"] for chunk in report["chunks"]], [40, 41])
+            self.assertEqual(report["generation_api"], "streaming")
+            self.assertEqual(report["chunk_count"], 2)
+
+    def test_generate_mp3_rejects_sample_rate_changes_and_keeps_parts_on_failure(self):
+        import faster_qwen3_tts
+
+        timing = {
+            "steps": 1,
+            "prefill_ms": 1.0,
+            "decode_s": 0.01,
+            "ms_per_step": 10.0,
+            "codec_decode_s": 0.01,
+            "warmup_s": 0.0,
+            "tts_wall_s": 0.01,
+        }
+        base_config = {
+            **MODULE.DEFAULT_CONFIG,
+            "speaker": Path("voice.pt"),
+            "text_preroll_enabled": False,
+            "append_chunk_end_padding": False,
+            "edge_fade_ms": 0,
+        }
+        fake_model = mock.Mock()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            output = directory / "rate-change.mp3"
+            with (
+                mock.patch.object(
+                    faster_qwen3_tts.FasterQwen3TTS,
+                    "from_pretrained",
+                    return_value=fake_model,
+                ),
+                mock.patch.object(MODULE, "load_voice_prompt", return_value={}),
+                mock.patch.object(
+                    MODULE,
+                    "_generate_audio_chunk",
+                    side_effect=[
+                        (np.ones(10, dtype=np.float32), 24000, dict(timing)),
+                        (np.ones(10, dtype=np.float32), 16000, dict(timing)),
+                    ],
+                ),
+                mock.patch("builtins.print"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "sample rate changed between chunks"):
+                    MODULE.generate_mp3(["Eins.", "Zwei."], output, base_config)
+
+            failed_output = directory / "encode-failure.mp3"
+            parts_directory = directory / "encode-failure_parts"
+            with (
+                mock.patch.object(
+                    faster_qwen3_tts.FasterQwen3TTS,
+                    "from_pretrained",
+                    return_value=fake_model,
+                ),
+                mock.patch.object(MODULE, "load_voice_prompt", return_value={}),
+                mock.patch.object(
+                    MODULE,
+                    "_generate_audio_chunk",
+                    return_value=(np.ones(100, dtype=np.float32), 1000, dict(timing)),
+                ),
+                mock.patch.object(MODULE, "write_mp3", side_effect=RuntimeError("encode failed")),
+                mock.patch("builtins.print"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "encode failed"):
+                    MODULE.generate_mp3(["Eins."], failed_output, base_config)
+
+            self.assertTrue((parts_directory / "teil-001.wav").is_file())
+
+    def test_generate_mp3_rejects_empty_chunks(self):
+        import faster_qwen3_tts
+
+        config = {
+            **MODULE.DEFAULT_CONFIG,
+            "speaker": Path("voice.pt"),
+            "text_preroll_enabled": False,
+            "save_wav_parts": False,
+        }
+        with (
+            mock.patch.object(
+                faster_qwen3_tts.FasterQwen3TTS,
+                "from_pretrained",
+                return_value=mock.Mock(),
+            ),
+            mock.patch.object(MODULE, "load_voice_prompt", return_value={}),
+            mock.patch("builtins.print"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "no audio chunks"):
+                MODULE.generate_mp3([], Path("unused.mp3"), config)
+
+    def test_main_resolves_overrides_builds_chunks_and_writes_metrics(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            speaker = directory / "voice.pt"
+            speaker.touch()
+            config_path = directory / "config.json"
+            _write_config(config_path, speaker, mode="legacy", save_wav_parts=True)
+            output = directory / "result.mp3"
+            metrics = directory / "reports" / "metrics.json"
+            report = {"status": "ok", "chunk_count": 2}
+
+            with mock.patch.object(MODULE, "generate_mp3", return_value=report) as generate:
+                result = MODULE.main(
+                    [
+                        "--text",
+                        "Eins. Zwei.",
+                        "--output",
+                        str(output),
+                        "--config",
+                        str(config_path),
+                        "--mode",
+                        "legacy",
+                        "--characters",
+                        "500",
+                        "--sentences",
+                        "1",
+                        "--no-wav-parts",
+                        "--metrics",
+                        str(metrics),
+                    ]
+                )
+
+            self.assertEqual(result, 0)
+            chunks, passed_output, passed_config = generate.call_args.args
+            self.assertEqual([chunk.text for chunk in chunks], ["Eins.", "Zwei."])
+            self.assertEqual(passed_output, output)
+            self.assertEqual(passed_config["legacy_chunk_chars"], 500)
+            self.assertFalse(passed_config["save_wav_parts"])
+            self.assertEqual(json.loads(metrics.read_text(encoding="utf-8")), report)
+
+    def test_main_converts_validation_errors_to_parser_exit(self):
+        with self.assertRaises(SystemExit) as raised:
+            MODULE.main(["--text", "   ", "--output", "out.mp3"])
+        self.assertEqual(raised.exception.code, 2)
+
+    def test_semantic_chunking_matches_representative_golden_result(self):
+        text = (
+            "# Auftakt\n\n"
+            "Dr. Müller erklärt den ersten Gedanken ausführlich. "
+            "Danach folgt ein zweiter vollständiger Satz.\n\n"
+            "# Wechsel\n\n"
+            "1. Der erste Punkt bleibt zusammen. "
+            "2. Der zweite Punkt schließt das Thema ab."
+        )
+        spoken = MODULE.normalize_numbered_list_markers(text, "German")
+
+        chunks = MODULE.semantic_chunk_text(
+            spoken,
+            target_chars=105,
+            min_chars=60,
+            max_chars=145,
+        )
+
+        self.assertEqual(
+            chunks,
+            [
+                MODULE.TextChunk(
+                    "Auftakt\n\nDr. Müller erklärt den ersten Gedanken ausführlich. "
+                    "Danach folgt ein zweiter vollständiger Satz.",
+                    "topic",
+                ),
+                MODULE.TextChunk(
+                    "Wechsel\n\nErstens, Der erste Punkt bleibt zusammen. "
+                    "2. Der zweite Punkt schließt das Thema ab.",
+                    "end",
+                ),
+            ],
+        )
+
+    def test_join_audio_chunks_matches_exact_pcm_for_pause_and_crossfade(self):
+        pause_config = {
+            **MODULE.DEFAULT_CONFIG,
+            "sentence_pause_ms": 4,
+            "edge_fade_ms": 0,
+        }
+        paused = MODULE.join_audio_chunks(
+            [
+                np.array([1.0, 1.0, 0.0], dtype=np.float32),
+                np.array([0.0, 0.5, 0.5], dtype=np.float32),
+            ],
+            [MODULE.TextChunk("eins", "sentence"), MODULE.TextChunk("zwei", "end")],
+            1000,
+            pause_config,
+        )
+        np.testing.assert_array_equal(
+            paused,
+            np.array([1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.5], dtype=np.float32),
+        )
+
+        crossfade_config = {
+            **MODULE.DEFAULT_CONFIG,
+            "crossfade_ms": 2,
+            "edge_fade_ms": 0,
+        }
+        crossfaded = MODULE.join_audio_chunks(
+            [np.ones(4, dtype=np.float32), np.zeros(4, dtype=np.float32)],
+            [MODULE.TextChunk("eins", "end"), MODULE.TextChunk("zwei", "end")],
+            1000,
+            crossfade_config,
+        )
+        np.testing.assert_array_equal(
+            crossfaded,
+            np.array([1.0, 1.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float32),
+        )
+
+    def test_load_config_allows_disabled_preroll_and_requires_speaker(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            speaker = directory / "voice.pt"
+            speaker.touch()
+            streaming_config = directory / "streaming.json"
+            _write_config(
+                streaming_config,
+                speaker,
+                generation_api="streaming",
+                text_preroll_enabled=False,
+            )
+
+            config = MODULE.load_config(streaming_config)
+            self.assertEqual(config["generation_api"], "streaming")
+            self.assertFalse(config["text_preroll_enabled"])
+
+            missing_speaker = directory / "empty-speaker.json"
+            missing_speaker.write_text(json.dumps({"speaker": ""}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "must point to a .pt"):
+                MODULE.load_config(missing_speaker)
+
+    def test_german_list_ordinals_cover_limits_and_unhandled_values(self):
+        self.assertEqual(MODULE._german_list_ordinal(20), "zwanzigstens")
+        self.assertEqual(MODULE._german_list_ordinal(42), "zweiundvierzigstens")
+        self.assertEqual(MODULE._german_list_ordinal(100), "hundertstens")
+        self.assertIsNone(MODULE._german_list_ordinal(101))
+        self.assertEqual(
+            MODULE.normalize_numbered_list_markers("101. Unverändert", "German"),
+            "101. Unverändert",
+        )
+
+    def test_active_rms_and_preroll_constructor_handle_silence_and_empty_sentence(self):
+        self.assertEqual(MODULE._active_rms(np.zeros(0, dtype=np.float32), -50.0), 0.0)
+        self.assertEqual(MODULE._active_rms(np.zeros(10, dtype=np.float32), -50.0), 0.0)
+        with self.assertRaisesRegex(ValueError, "must not be empty"):
+            MODULE.TextPrerollChunkGenerator(
+                mock.Mock(),
+                sentence="   ",
+                search_window_ms=50,
+                min_pause_ms=20,
+                lead_in_ms=0,
+                debug_directory=Path("debug"),
+                save_debug_wav=False,
+            )
+
+    def test_delete_parts_directory_rejects_symlink_marker(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            output = directory / "result.mp3"
+            output.write_bytes(b"mp3")
+            parts = directory / "result_parts"
+            with mock.patch.object(Path, "is_symlink", return_value=True):
+                with self.assertRaisesRegex(RuntimeError, "symlinked parts directory"):
+                    MODULE.delete_parts_directory(parts, output)
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="load_xvector_prompt calls .to() before validating the loaded object type",
+)
+def test_load_xvector_prompt_reports_non_tensor_as_value_error(tmp_path):
+    import torch
+
+    embedding_path = tmp_path / "not-a-tensor.pt"
+    torch.save({"embedding": [0.0] * 2048}, embedding_path)
+
+    with pytest.raises(ValueError, match="2048-element speaker embedding"):
+        MODULE.load_xvector_prompt(embedding_path, "cpu")
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="--characters is not applied when legacy mode comes only from config",
+)
+def test_main_applies_characters_to_legacy_mode_selected_by_config(tmp_path, monkeypatch):
+    speaker = tmp_path / "voice.pt"
+    speaker.touch()
+    config_path = tmp_path / "config.json"
+    _write_config(config_path, speaker, mode="legacy")
+    captured = {}
+
+    def fake_generate(chunks, output, config):
+        captured["config"] = config
+        return {"chunk_count": len(chunks)}
+
+    monkeypatch.setattr(MODULE, "generate_mp3", fake_generate)
+    result = MODULE.main(
+        [
+            "--text",
+            "Eins. Zwei.",
+            "--output",
+            str(tmp_path / "result.mp3"),
+            "--config",
+            str(config_path),
+            "--characters",
+            "300",
+        ]
+    )
+
+    assert result == 0
+    assert captured["config"]["legacy_chunk_chars"] == 300
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="write_mp3 writes directly to the destination instead of replacing it atomically",
+)
+def test_write_mp3_preserves_existing_output_when_encoding_fails(tmp_path, monkeypatch):
+    output = tmp_path / "existing.mp3"
+    output.write_bytes(b"original output")
+
+    def truncate_then_fail(path, *args, **kwargs):
+        Path(path).write_bytes(b"")
+        raise RuntimeError("encoder failed")
+
+    monkeypatch.setattr("soundfile.write", truncate_then_fail)
+    with pytest.raises(RuntimeError, match="MP3 encoding failed"):
+        MODULE.write_mp3(output, np.zeros(10, dtype=np.float32), 24000)
+
+    assert output.read_bytes() == b"original output"
 
 
 if __name__ == "__main__":
