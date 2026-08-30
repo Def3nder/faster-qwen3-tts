@@ -2,16 +2,31 @@
 
 Dieser Text prüft Aussprache, Betonung, Satzzeichen, Aufzählungen, Datumsangaben, Pausen und typische Markdown-Formatierungen.
 
-## Satzzeichen am Zeilenende
+## Satzzeichen und passende Satzfunktion
 
-Dieser Satz endet mit einem Punkt.
-Dieser Satz endet mit einem Ausrufezeichen!
-Dieser Satz endet mit einem Fragezeichen?
-Dieser Satz endet mit einem Doppelpunkt:
-Dieser Satz endet mit einem Semikolon;
-Dieser Satz endet mit einem Komma,
-Dieser Satz endet mit drei Punkten ...
-Dieser Satz endet mit einem typografischen Auslassungszeichen …
+Der nächste Zug fährt um neun Uhr ab.
+Heute scheint die Sonne und der Himmel ist blau.
+
+Wann fährt der nächste Zug?
+Kommst du heute mit zum Bahnhof?
+
+Vorsicht, die Türen schließen!
+Endlich ist der lang erwartete Zug da!
+
+Für die Reise brauchen wir drei Dinge:
+einen Koffer, eine Fahrkarte und einen Ausweis.
+
+Der erste Zug ist bereits abgefahren; der nächste Zug kommt in zehn Minuten.
+
+Wenn der Regen aufgehört hat,
+gehen wir gemeinsam zum Bahnhof.
+
+Ich dachte, der Schlüssel läge auf dem Tisch ... aber dort ist er nicht.
+Vielleicht hat ihn jemand mitgenommen … oder ich habe ihn nur verlegt.
+
+Du kommst heute mit.
+Kommst du heute mit?
+Du kommst heute mit!
 
 ## Einzelne Satzzeichen in einer Zeile
 

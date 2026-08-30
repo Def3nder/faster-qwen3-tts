@@ -40,6 +40,7 @@ import shutil
 import sys
 import time
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any, Literal, NamedTuple, TypedDict, cast
 
@@ -388,6 +389,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="Append two line breaks and a period to every complete sentence",
     )
     parser.add_argument(
+        "--clear_markdown",
+        "--clear-markdown",
+        action="store_true",
+        help=(
+            "Prepare German Markdown-like text for speech by normalizing "
+            "abbreviations, lists, dates, code blocks, and URLs"
+        ),
+    )
+    parser.add_argument(
+        "--print_cleaned_text",
+        "--print-cleaned-text",
+        action="store_true",
+        help=(
+            "Print text processed by --clear_markdown and exit before loading "
+            "the TTS model"
+        ),
+    )
+    parser.add_argument(
+        "--write_cleaned_text",
+        "--write-cleaned-text",
+        type=Path,
+        metavar="PATH",
+        help=(
+            "Write text processed by --clear_markdown as UTF-8 and exit before "
+            "loading the TTS model"
+        ),
+    )
+    parser.add_argument(
         "--config",
         type=Path,
         default=Path(__file__).with_name("config.json"),
@@ -718,6 +747,87 @@ GERMAN_CARDINAL_TENS = {
     8: "achtzig",
     9: "neunzig",
 }
+GERMAN_DATE_MONTHS = {
+    1: "Januar",
+    2: "Februar",
+    3: "März",
+    4: "April",
+    5: "Mai",
+    6: "Juni",
+    7: "Juli",
+    8: "August",
+    9: "September",
+    10: "Oktober",
+    11: "November",
+    12: "Dezember",
+}
+GERMAN_DATE_DAY_ORDINALS = {
+    1: "Erster",
+    2: "Zweiter",
+    3: "Dritter",
+    4: "Vierter",
+    5: "Fünfter",
+    6: "Sechster",
+    7: "Siebter",
+    8: "Achter",
+    9: "Neunter",
+    10: "Zehnter",
+    11: "Elfter",
+    12: "Zwölfter",
+    13: "Dreizehnter",
+    14: "Vierzehnter",
+    15: "Fünfzehnter",
+    16: "Sechzehnter",
+    17: "Siebzehnter",
+    18: "Achtzehnter",
+    19: "Neunzehnter",
+    20: "Zwanzigster",
+    21: "Einundzwanzigster",
+    22: "Zweiundzwanzigster",
+    23: "Dreiundzwanzigster",
+    24: "Vierundzwanzigster",
+    25: "Fünfundzwanzigster",
+    26: "Sechsundzwanzigster",
+    27: "Siebenundzwanzigster",
+    28: "Achtundzwanzigster",
+    29: "Neunundzwanzigster",
+    30: "Dreißigster",
+    31: "Einunddreißigster",
+}
+
+_DOTTED_DATE_RE = re.compile(
+    r"(?<!\d)(?P<day>0?[1-9]|[12]\d|3[01])\."
+    r"(?P<month>0?[1-9]|1[0-2])\."
+    r"(?P<year>\d{4})(?!\d)"
+)
+_ISO_DATE_RE = re.compile(
+    r"(?<!\d)(?P<year>\d{4})-"
+    r"(?P<month>0[1-9]|1[0-2])-"
+    r"(?P<day>0[1-9]|[12]\d|3[01])(?!\d)"
+)
+_STANDALONE_FENCE_RE = re.compile(
+    r"^[ \t]*(?P<fence>`{3,}|~{3,})[^\r\n]*(?:\r?\n)?$"
+)
+_SOURCE_URL_LINE_RE = re.compile(
+    r"^[ \t]*Quelle:[ \t]*https?://[^\r\n]*(?:\r?\n|$)",
+    re.IGNORECASE | re.MULTILINE,
+)
+_MARKDOWN_HTTP_LINK_RE = re.compile(
+    r"\[([^\]\r\n]+)\]\(\s*<?https?://[^)\s>]+>?"
+    r"(?:\s+['\"][^'\"]*['\"])?\s*\)",
+    re.IGNORECASE,
+)
+_HTTP_AUTOLINK_RE = re.compile(
+    r"<(?:https?://|www\.)[^>\s]+>",
+    re.IGNORECASE,
+)
+_BARE_URL_RE = re.compile(
+    r"\b(?:https?://|www\.)[^\s<>{}\[\]()`]+(?<![.,;:!?])",
+    re.IGNORECASE,
+)
+_INLINE_NUMBERED_LIST_RE = re.compile(
+    r"(?P<space>[^\S\r\n]+)(?P<number>\d{1,3})\.[ \t]+(?=\S)"
+)
 
 
 def _german_list_ordinal(number: int) -> str | None:
@@ -734,6 +844,129 @@ def _german_list_ordinal(number: int) -> str | None:
     if ones == 0:
         return f"{tens_word}stens"
     return f"{GERMAN_CARDINAL_ONES[ones]}und{tens_word}stens"
+
+
+def _remove_standalone_fenced_code_blocks(text: str) -> str:
+    """Remove complete fenced blocks whose fences occupy their own lines."""
+    lines = text.splitlines(keepends=True)
+    result: list[str] = []
+    index = 0
+    while index < len(lines):
+        opening = _STANDALONE_FENCE_RE.fullmatch(lines[index])
+        if opening is None:
+            result.append(lines[index])
+            index += 1
+            continue
+
+        fence = opening.group("fence")
+        closing_re = re.compile(
+            rf"^[ \t]*{re.escape(fence[0])}{{{len(fence)},}}"
+            r"[ \t]*(?:\r?\n)?$"
+        )
+        closing_index = next(
+            (
+                candidate
+                for candidate in range(index + 1, len(lines))
+                if closing_re.fullmatch(lines[candidate])
+            ),
+            None,
+        )
+        if closing_index is None:
+            result.append(lines[index])
+            index += 1
+            continue
+        index = closing_index + 1
+    return "".join(result)
+
+
+def _replace_german_date(match: re.Match[str]) -> str:
+    day = int(match.group("day"))
+    month = int(match.group("month"))
+    year = int(match.group("year"))
+    try:
+        date(year, month, day)
+    except ValueError:
+        return match.group(0)
+    return f"{GERMAN_DATE_DAY_ORDINALS[day]} {GERMAN_DATE_MONTHS[month]} {year}"
+
+
+def _normalize_inline_numbered_lists(text: str) -> str:
+    """Speak numbered markers inside a line without touching line-leading ones."""
+
+    def replace_marker(match: re.Match[str]) -> str:
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        if not text[line_start : match.start()].strip():
+            return match.group(0)
+        ordinal = _german_list_ordinal(int(match.group("number")))
+        if ordinal is None:
+            return match.group(0)
+        return f"{match.group('space')}{ordinal} "
+
+    return _INLINE_NUMBERED_LIST_RE.sub(replace_marker, text)
+
+
+def clear_markdown_text(text: str) -> str:
+    """Apply the opt-in German text cleanup used by ``--clear_markdown``."""
+    cleaned = text.replace("\r\n", "\n").replace("\r", "\n")
+    cleaned = _remove_standalone_fenced_code_blocks(cleaned)
+    cleaned = _SOURCE_URL_LINE_RE.sub("", cleaned)
+    cleaned = _MARKDOWN_HTTP_LINK_RE.sub(r"\1", cleaned)
+    cleaned = _HTTP_AUTOLINK_RE.sub("", cleaned)
+    cleaned = _BARE_URL_RE.sub("", cleaned)
+
+    cleaned = _DOTTED_DATE_RE.sub(_replace_german_date, cleaned)
+    cleaned = _ISO_DATE_RE.sub(_replace_german_date, cleaned)
+    cleaned = re.sub(
+        r"(?<!\w)z\.[ \t\u00a0]+B\.",
+        "z.B.",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"(?<!\w)d\.[ \t\u00a0]+h\.",
+        "d.h.",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"(?<!\w)u\.[ \t\u00a0]*a\.",
+        "unter anderem",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"(?<!\w)ggf\.",
+        "gegebenenfalls",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"(?<!\w)bzw\.",
+        "beziehungsweise",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"(?m)^(?P<indent>[ \t]*)\+(?=[ \t]+\S)",
+        r"\g<indent>-",
+        cleaned,
+    )
+    cleaned = _normalize_inline_numbered_lists(cleaned)
+
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"(?<=\S)[ \t]{2,}(?=\S)", " ", cleaned)
+    cleaned = re.sub(r"[ \t]+([.,;:!?])", r"\1", cleaned)
+    cleaned = re.sub(r"\n[ \t]*\n(?:[ \t]*\n)+", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def write_cleaned_text(path: Path, text: str) -> None:
+    """Write cleaned text as UTF-8, creating missing parent directories."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"could not write cleaned text to {path}: {exc}") from exc
 
 
 def normalize_numbered_list_markers(text: str, language: str) -> str:
@@ -1888,6 +2121,25 @@ class TextPrerollChunkGenerator:
             lead_in_ms=self.lead_in_ms,
             threshold_db=config["silence_threshold_db"],
         )
+        relaxed_threshold_db = min(
+            -40.0,
+            config["silence_threshold_db"] + 5.0,
+        )
+        if cut is None and relaxed_threshold_db > config["silence_threshold_db"]:
+            cut = find_pause_cut(
+                audio,
+                sample_rate,
+                expected_pause_start_sample=self.expected_pause_start_sample,
+                search_window_ms=self.search_window_ms,
+                min_pause_ms=self.min_pause_ms,
+                lead_in_ms=self.lead_in_ms,
+                threshold_db=relaxed_threshold_db,
+            )
+            if cut is not None:
+                print(
+                    "Text preroll: pause detection accepted low-level background "
+                    f"audio at {relaxed_threshold_db:.1f} dBFS"
+                )
         if cut is None:
             self.debug_directory.mkdir(parents=True, exist_ok=True)
             failure_path = (
@@ -2411,6 +2663,25 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         text = resolve_text(args.text, args.input)
+        text_only_requested = bool(
+            args.print_cleaned_text or args.write_cleaned_text is not None
+        )
+        if text_only_requested and not args.clear_markdown:
+            raise ValueError(
+                "--print_cleaned_text and --write_cleaned_text require "
+                "--clear_markdown"
+            )
+        if args.clear_markdown:
+            text = clear_markdown_text(text)
+            if not text:
+                raise ValueError("input text is empty after --clear_markdown")
+        if args.write_cleaned_text is not None:
+            write_cleaned_text(args.write_cleaned_text, text)
+            print(f"Cleaned text: {args.write_cleaned_text}", file=sys.stderr)
+        if args.print_cleaned_text:
+            sys.stdout.write(f"{text}\n")
+        if text_only_requested:
+            return 0
         output = resolve_output_path(args.output, args.input)
         config = load_config(
             args.config,

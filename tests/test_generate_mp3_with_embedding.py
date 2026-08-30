@@ -1,4 +1,5 @@
 import importlib.util
+import io
 import json
 import os
 import tempfile
@@ -112,6 +113,50 @@ class GenerateMp3WithEmbeddingTests(unittest.TestCase):
 
         self.assertFalse(without_padding.padding)
         self.assertTrue(with_padding.padding)
+
+    def test_parser_accepts_clear_markdown_flag_and_alias(self):
+        parser = MODULE.build_parser()
+
+        plain = parser.parse_args(["--text", "Hallo.", "--output", "out.mp3"])
+        underscored = parser.parse_args(
+            ["--text", "Hallo.", "--output", "out.mp3", "--clear_markdown"]
+        )
+        dashed = parser.parse_args(
+            ["--text", "Hallo.", "--output", "out.mp3", "--clear-markdown"]
+        )
+
+        self.assertFalse(plain.clear_markdown)
+        self.assertTrue(underscored.clear_markdown)
+        self.assertTrue(dashed.clear_markdown)
+
+    def test_parser_accepts_cleaned_text_output_switches_and_aliases(self):
+        parser = MODULE.build_parser()
+
+        underscored = parser.parse_args(
+            [
+                "--text",
+                "Hallo.",
+                "--clear_markdown",
+                "--print_cleaned_text",
+                "--write_cleaned_text",
+                "cleaned.md",
+            ]
+        )
+        dashed = parser.parse_args(
+            [
+                "--text",
+                "Hallo.",
+                "--clear-markdown",
+                "--print-cleaned-text",
+                "--write-cleaned-text",
+                "cleaned.md",
+            ]
+        )
+
+        self.assertTrue(underscored.print_cleaned_text)
+        self.assertEqual(underscored.write_cleaned_text, Path("cleaned.md"))
+        self.assertTrue(dashed.print_cleaned_text)
+        self.assertEqual(dashed.write_cleaned_text, Path("cleaned.md"))
 
     def test_resolve_text_reads_utf8_bom_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -286,6 +331,82 @@ class GenerateMp3WithEmbeddingTests(unittest.TestCase):
             invalid_utf8.write_bytes(b"\xff\xfe\xfa")
             with self.assertRaisesRegex(ValueError, "not valid UTF-8"):
                 MODULE.resolve_text(None, invalid_utf8)
+
+    def test_clear_markdown_normalizes_abbreviations_and_list_markers(self):
+        text = (
+            "Das ist z. B. wichtig. Das ist z.\u00a0B. neu.\n"
+            "Das ist d. h. klar. Das ist d.\u00a0h. sicher.\n"
+            "Wir nutzen u. a. Äpfel, u.a. Birnen, ggf. Kirschen bzw. Pflaumen.\n"
+            "+ Erster Punkt\n"
+            "Der Ablauf: 1. starten, 2. prüfen und 21. abschließen.\n"
+            "1. Listenpunkt am Zeilenanfang."
+        )
+
+        self.assertEqual(
+            MODULE.clear_markdown_text(text),
+            "Das ist z.B. wichtig. Das ist z.B. neu.\n"
+            "Das ist d.h. klar. Das ist d.h. sicher.\n"
+            "Wir nutzen unter anderem Äpfel, unter anderem Birnen, "
+            "gegebenenfalls Kirschen beziehungsweise Pflaumen.\n"
+            "- Erster Punkt\n"
+            "Der Ablauf: erstens starten, zweitens prüfen und "
+            "einundzwanzigstens abschließen.\n"
+            "1. Listenpunkt am Zeilenanfang.",
+        )
+
+    def test_clear_markdown_writes_valid_dates_in_german_long_form(self):
+        text = (
+            "01.08.2026\n"
+            "2026-08-01\n"
+            "02.08.2026\n"
+            "2026-08-03\n"
+            "29.02.2024\n"
+            "2024-02-29\n"
+            "31.02.2026\n"
+            "Version 2.5.1"
+        )
+
+        self.assertEqual(
+            MODULE.clear_markdown_text(text),
+            "Erster August 2026\n"
+            "Erster August 2026\n"
+            "Zweiter August 2026\n"
+            "Dritter August 2026\n"
+            "Neunundzwanzigster Februar 2024\n"
+            "Neunundzwanzigster Februar 2024\n"
+            "31.02.2026\n"
+            "Version 2.5.1",
+        )
+
+    def test_clear_markdown_removes_fenced_code_and_urls_but_keeps_inline_code(self):
+        text = (
+            "Vorher.\n\n"
+            "```python\n"
+            "print('nicht sprechen')\n"
+            "```\n\n"
+            "Nachher mit `inline_code` und ```inline fenced text```.\n"
+            "Quelle: http://example.org/quelle\n"
+            "Quelle: https://example.org/quelle\n"
+            "Besuche https://example.org/test.\n"
+            "Siehe [Beispiel](https://example.org/page).\n"
+            "Auch www.example.org ist eine URL.\n"
+            "E-Mail test@example.org bleibt."
+        )
+
+        self.assertEqual(
+            MODULE.clear_markdown_text(text),
+            "Vorher.\n\n"
+            "Nachher mit `inline_code` und ```inline fenced text```.\n"
+            "Besuche.\n"
+            "Siehe Beispiel.\n"
+            "Auch ist eine URL.\n"
+            "E-Mail test@example.org bleibt.",
+        )
+
+    def test_clear_markdown_preserves_unclosed_fence(self):
+        text = "Vorher.\n```python\nprint('unvollständig')"
+
+        self.assertEqual(MODULE.clear_markdown_text(text), text)
 
     def test_load_config_reports_file_and_json_errors(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1286,6 +1407,66 @@ class GenerateMp3WithEmbeddingTests(unittest.TestCase):
         self.assertEqual(first_timing["tts_wall_s"], 1.0)
         self.assertEqual(second_timing["tts_wall_s"], 0.5)
 
+    def test_text_preroll_accepts_low_level_audio_inside_boundary_pause(self):
+        timing = {
+            "steps": 1,
+            "prefill_ms": 1.0,
+            "decode_s": 0.01,
+            "ms_per_step": 10.0,
+            "codec_decode_s": 0.01,
+            "warmup_s": 0.0,
+            "tts_wall_s": 0.1,
+        }
+        calibration = np.concatenate(
+            [np.full(100, 0.2, dtype=np.float32), np.zeros(100, dtype=np.float32)]
+        )
+        noisy_boundary = np.concatenate(
+            [
+                np.full(100, 0.2, dtype=np.float32),
+                np.full(160, 0.005, dtype=np.float32),
+                np.full(100, 0.2, dtype=np.float32),
+            ]
+        )
+        self.assertIsNone(
+            MODULE.find_pause_cut(
+                noisy_boundary,
+                1000,
+                expected_pause_start_sample=100,
+                search_window_ms=50,
+                min_pause_ms=100,
+                lead_in_ms=0,
+                threshold_db=-50.0,
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            original_generator = mock.Mock(
+                side_effect=[
+                    (calibration, 1000, dict(timing)),
+                    (noisy_boundary, 1000, dict(timing)),
+                ]
+            )
+            wrapper = MODULE.TextPrerollChunkGenerator(
+                original_generator,
+                sentence="Kalibrierung.",
+                search_window_ms=50,
+                min_pause_ms=100,
+                lead_in_ms=0,
+                debug_directory=Path(temp_dir),
+                save_debug_wav=False,
+            )
+            audio, _, _ = wrapper(
+                mock.Mock(),
+                {},
+                "Ziel.",
+                {**MODULE.DEFAULT_CONFIG, "silence_threshold_db": -50.0},
+                mock.Mock(),
+                run_warmup=False,
+                seed=1,
+            )
+
+        np.testing.assert_array_equal(audio, np.full(100, 0.2, dtype=np.float32))
+
     def test_text_preroll_reports_cut_failure_and_sample_rate_change(self):
         timing = {
             "steps": 1,
@@ -1680,6 +1861,101 @@ class GenerateMp3WithEmbeddingTests(unittest.TestCase):
             self.assertEqual(passed_config["legacy_chunk_chars"], 500)
             self.assertFalse(passed_config["save_wav_parts"])
             self.assertEqual(json.loads(metrics.read_text(encoding="utf-8")), report)
+
+    def test_main_applies_clear_markdown_before_chunking(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            speaker = directory / "voice.pt"
+            speaker.touch()
+            config_path = directory / "config.json"
+            _write_config(
+                config_path,
+                speaker,
+                mode="legacy",
+                speak_numbered_lists=False,
+            )
+            output = directory / "result.mp3"
+
+            with mock.patch.object(
+                MODULE,
+                "generate_mp3",
+                return_value={"status": "ok"},
+            ) as generate:
+                result = MODULE.main(
+                    [
+                        "--text",
+                        "Termin: 01.08.2026.\n"
+                        "Quelle: https://example.org/quelle\n"
+                        "Ablauf: 1. starten.",
+                        "--output",
+                        str(output),
+                        "--config",
+                        str(config_path),
+                        "--clear_markdown",
+                    ]
+                )
+
+            self.assertEqual(result, 0)
+            chunks, passed_output, _ = generate.call_args.args
+            self.assertEqual(
+                [chunk.text for chunk in chunks],
+                ["Termin: Erster August 2026.\nAblauf: erstens starten."],
+            )
+            self.assertEqual(passed_output, output)
+
+    def test_main_prints_and_writes_cleaned_text_without_loading_tts(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cleaned_path = Path(temp_dir) / "nested" / "cleaned.md"
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                mock.patch("sys.stdout", stdout),
+                mock.patch("sys.stderr", stderr),
+                mock.patch.object(MODULE, "load_config") as load_config,
+                mock.patch.object(MODULE, "generate_mp3") as generate,
+            ):
+                result = MODULE.main(
+                    [
+                        "--text",
+                        "Termin: 01.08.2026. Quelle: https://example.org",
+                        "--clear_markdown",
+                        "--print_cleaned_text",
+                        "--write_cleaned_text",
+                        str(cleaned_path),
+                    ]
+                )
+
+            expected = "Termin: Erster August 2026. Quelle:"
+            self.assertEqual(result, 0)
+            self.assertEqual(stdout.getvalue(), f"{expected}\n")
+            self.assertIn(str(cleaned_path), stderr.getvalue())
+            self.assertEqual(cleaned_path.read_text(encoding="utf-8"), expected)
+            load_config.assert_not_called()
+            generate.assert_not_called()
+
+    def test_main_requires_clear_markdown_for_cleaned_text_outputs(self):
+        for option in ("--print_cleaned_text", "--write_cleaned_text"):
+            with self.subTest(option=option):
+                argv = ["--text", "Hallo.", option]
+                if option == "--write_cleaned_text":
+                    argv.append("cleaned.md")
+                with self.assertRaises(SystemExit) as raised:
+                    MODULE.main(argv)
+                self.assertEqual(raised.exception.code, 2)
+
+    def test_main_rejects_input_removed_entirely_by_clear_markdown(self):
+        with self.assertRaises(SystemExit) as raised:
+            MODULE.main(
+                [
+                    "--text",
+                    "```python\nprint('entfernen')\n```",
+                    "--output",
+                    "out.mp3",
+                    "--clear_markdown",
+                ]
+            )
+
+        self.assertEqual(raised.exception.code, 2)
 
     def test_main_converts_validation_errors_to_parser_exit(self):
         with self.assertRaises(SystemExit) as raised:

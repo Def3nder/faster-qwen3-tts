@@ -1,0 +1,19 @@
+"z. B.": "z.B."
+"d. h.": "d.h."
+"u. a.": "unter anderem"
+"u.a.": "unter anderem"
+"ggf.": "gegebenenfalls",
+"bzw.": "beziehungsweise",
+
++ am Satzanfang  ->  -
+
+im Satz '1.' -> 'erstens'   etc.
+
+Datum immer in Langform ausschreiben( "01.08.2026" / "2026-08-01": "Erster August 2026" )
+
+Code-Block komplett entfernen, wenn sie alleinstehend sind - im Satz nichts machen.
+
+"Quelle: http://...": entfernen
+"Quelle: https://...": entfernen
+
+URLS entfernen

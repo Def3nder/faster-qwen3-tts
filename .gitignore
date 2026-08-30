@@ -16,3 +16,5 @@ packages/qwentts_cpp_python/
 input/
 output/
 voices/
+samples/*.mp3
+samples/*/*.mp3
