@@ -39,11 +39,134 @@ import re
 import shutil
 import sys
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple, TypedDict, cast
 
 
 MAX_ALLOWED_CHUNK_CHARS = 3000
+
+Boundary = Literal["sentence", "paragraph", "topic", "end"]
+Mode = Literal["legacy", "semantic", "semantic_icl"]
+GenerationAPI = Literal["non_streaming", "streaming"]
+SeedStrategy = Literal["fixed", "increment"]
+PartsDirectoryPolicy = Literal["delete", "keep"]
+DTypeName = Literal["bfloat16", "float16", "float32"]
+
+
+class TTSConfig(TypedDict):
+    speaker: Path
+    language: str
+    instruct: str
+    model_path: str
+    device: str
+    model_device: str
+    dtype: DTypeName
+    temperature: float
+    top_k: int
+    top_p: float
+    repetition_penalty: float
+    do_sample: bool
+    seed: int
+    seed_strategy: SeedStrategy
+    min_new_tokens: int
+    warmup_max_new_tokens: int
+    max_new_tokens: int
+    model_max_seq_len: int
+    non_streaming_mode: bool
+    generation_api: GenerationAPI
+    codec_context_frames: int
+    mode: Mode
+    legacy_chunk_chars: int
+    target_chunk_chars: int
+    min_chunk_chars: int
+    max_chunk_chars: int
+    text_preroll_enabled: bool
+    text_preroll_sentence: str
+    text_preroll_search_window_ms: int
+    text_preroll_min_pause_ms: int
+    text_preroll_lead_in_ms: int
+    append_chunk_end_padding: bool
+    chunk_end_padding_text: str
+    sentence_pause_ms: int
+    paragraph_pause_ms: int
+    topic_pause_ms: int
+    max_leading_silence_ms: int
+    max_trailing_silence_ms: int
+    silence_threshold_db: float
+    edge_fade_ms: int
+    crossfade_ms: int
+    loudness_match_max_db: float
+    save_wav_parts: bool
+    parts_directory_policy: PartsDirectoryPolicy
+    speak_numbered_lists: bool
+    ref_audio: Path | None
+    ref_text: str
+    ref_text_file: Path | None
+    icl_append_silence_ms: int
+
+
+class ChunkTiming(TypedDict, total=False):
+    steps: int
+    prefill_ms: float
+    decode_s: float
+    ms_per_step: float
+    prepare_s: float
+    generation_wall_s: float
+    codec_decode_s: float
+    warmup_s: float
+    codec_context_frames: int
+    tts_wall_s: float
+    text_preroll_cut_s: float
+
+
+class CodecContextState(TypedDict):
+    codes: Any
+
+
+class ChunkMetric(TypedDict):
+    index: int
+    characters: int
+    boundary_after: Boundary
+    seed: int
+    audio_seconds: float
+    tts_seconds: float
+    rtf: float
+    prefill_seconds: float
+    decode_seconds: float
+    codec_decode_seconds: float
+    codec_context_frames: int
+    steps: int
+
+
+class GenerationReport(TypedDict):
+    model: str
+    dtype: DTypeName
+    mode: Mode
+    prompt_mode: Literal["icl", "x_vector"]
+    generation_api: GenerationAPI
+    codec_context_frames: int
+    text_preroll_enabled: bool
+    text_preroll_sentence: str
+    append_chunk_end_padding: bool
+    chunk_end_padding_text: str
+    output: str
+    total_characters: int
+    chunk_count: int
+    average_chunk_characters: float
+    audio_seconds: float
+    total_seconds: float
+    model_init_seconds: float
+    prompt_init_seconds: float
+    warmup_seconds: float
+    tts_seconds: float
+    postprocessing_seconds: float
+    mp3_encoding_seconds: float
+    rtf: float
+    x_realtime: float
+    peak_vram_allocated_gib: float
+    peak_vram_reserved_gib: float
+    chunks: list[ChunkMetric]
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "speaker": "",
@@ -142,7 +265,7 @@ SENTENCE_CLOSERS = "\"'”’»)]}"
 
 class TextChunk(NamedTuple):
     text: str
-    boundary_after: str = "sentence"
+    boundary_after: Boundary = "sentence"
 
 
 def positive_int(value: str) -> int:
@@ -298,7 +421,7 @@ def _require_type(config: dict[str, Any], key: str, expected: type) -> None:
 def load_config(
     path: Path,
     cli_overrides: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+) -> TTSConfig:
     """Load, merge, apply CLI overrides, and validate the TTS configuration."""
     try:
         raw = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -531,7 +654,7 @@ def load_config(
             "semantic_icl requires both ref_audio and an exact ref_text or ref_text_file"
         )
 
-    return config
+    return cast(TTSConfig, config)
 
 
 def resolve_text(direct_text: str | None, input_path: Path | None) -> str:
@@ -852,7 +975,7 @@ def chunk_text(
 class _SemanticUnit(NamedTuple):
     text: str
     block_index: int
-    boundary_after: str
+    boundary_after: Boundary
 
 
 def _looks_like_heading(text: str) -> bool:
@@ -1014,7 +1137,7 @@ def semantic_chunk_text(
 
 def build_text_chunks(
     text: str,
-    config: dict[str, Any],
+    config: TTSConfig,
     *,
     sentences_per_chunk: int | None = None,
     padding: bool = False,
@@ -1092,7 +1215,7 @@ def load_xvector_prompt(path: Path, device: str) -> dict[str, list[Any]]:
     }
 
 
-def load_voice_prompt(model: Any, config: dict[str, Any]) -> Any:
+def load_voice_prompt(model: Any, config: TTSConfig) -> Any:
     """Load the compact x-vector or build one reusable full ICL prompt."""
     if config["mode"] != "semantic_icl":
         return load_xvector_prompt(config["speaker"], device=config["device"])
@@ -1265,7 +1388,7 @@ def join_audio_chunks(
     audio_chunks: list[Any],
     text_chunks: list[TextChunk],
     sample_rate: int,
-    config: dict[str, Any],
+    config: TTSConfig,
 ) -> Any:
     """Join PCM once, avoiding doubled silence and unsafe text/audio overlap."""
     import numpy as np
@@ -1278,7 +1401,14 @@ def join_audio_chunks(
         "topic": config["topic_pause_ms"],
         "end": 0,
     }
-    result = _apply_edge_fades(audio_chunks[0], sample_rate, config["edge_fade_ms"])
+    first = _apply_edge_fades(
+        audio_chunks[0], sample_rate, config["edge_fade_ms"]
+    )
+    segments = [first]
+    result_length = len(first)
+    _, accumulated_trailing = edge_silence_samples(
+        first, config["silence_threshold_db"]
+    )
     for index, next_audio in enumerate(audio_chunks[1:], start=1):
         next_array = _apply_edge_fades(
             next_audio, sample_rate, config["edge_fade_ms"]
@@ -1288,38 +1418,75 @@ def join_audio_chunks(
             * sample_rate
             / 1000
         )
-        _, trailing = edge_silence_samples(result, config["silence_threshold_db"])
-        leading, _ = edge_silence_samples(next_array, config["silence_threshold_db"])
-        missing_pause = max(0, target_pause - trailing - leading)
+        leading, next_trailing = edge_silence_samples(
+            next_array, config["silence_threshold_db"]
+        )
+        missing_pause = max(0, target_pause - accumulated_trailing - leading)
 
         crossfade = min(
             round(config["crossfade_ms"] * sample_rate / 1000),
-            len(result),
+            result_length,
             len(next_array),
         )
         if crossfade > 0 and target_pause == 0:
+            # Crossfades need the exact accumulated tail. This path is uncommon;
+            # normal paragraph and sentence joins stay segmented until the end.
+            result = np.concatenate(segments)
             fade_out = np.linspace(1.0, 0.0, crossfade, dtype=np.float32)
             fade_in = 1.0 - fade_out
             overlap = result[-crossfade:] * fade_out + next_array[:crossfade] * fade_in
-            result = np.concatenate([result[:-crossfade], overlap, next_array[crossfade:]])
-        else:
-            result = np.concatenate(
-                [result, np.zeros(missing_pause, dtype=np.float32), next_array]
+            combined = np.concatenate(
+                [result[:-crossfade], overlap, next_array[crossfade:]]
             )
-    return result.astype(np.float32, copy=False)
+            segments = [combined]
+            result_length = len(combined)
+            _, accumulated_trailing = edge_silence_samples(
+                combined, config["silence_threshold_db"]
+            )
+        else:
+            if missing_pause:
+                segments.append(np.zeros(missing_pause, dtype=np.float32))
+            segments.append(next_array)
+            result_length += missing_pause + len(next_array)
+            next_has_active_audio = bool(len(next_array)) and not (
+                leading == len(next_array) and next_trailing == len(next_array)
+            )
+            accumulated_trailing = (
+                next_trailing
+                if next_has_active_audio
+                else accumulated_trailing + missing_pause + len(next_array)
+            )
+    return np.concatenate(segments).astype(np.float32, copy=False)
+
+
+def _sampling_kwargs(
+    config: TTSConfig,
+    *,
+    max_new_tokens: int,
+) -> dict[str, Any]:
+    """Return the shared sampling contract for every generation backend."""
+    return {
+        "temperature": config["temperature"],
+        "top_k": config["top_k"],
+        "top_p": config["top_p"],
+        "do_sample": config["do_sample"],
+        "repetition_penalty": config["repetition_penalty"],
+        "min_new_tokens": config["min_new_tokens"],
+        "max_new_tokens": max_new_tokens,
+    }
 
 
 def _generate_audio_chunk(
     model: Any,
     voice_clone_prompt: Any,
     text: str,
-    config: dict[str, Any],
+    config: TTSConfig,
     fast_generate: Any,
     *,
     run_warmup: bool,
     seed: int,
-    codec_context_state: dict[str, Any] | None = None,
-) -> tuple[Any, int, dict[str, Any]]:
+    codec_context_state: CodecContextState | None = None,
+) -> tuple[Any, int, ChunkTiming]:
     import torch
 
     warmup_seconds = 0.0
@@ -1354,13 +1521,10 @@ def _generate_audio_chunk(
             talker_config,
             model.predictor_graph,
             model.talker_graph,
-            temperature=config["temperature"],
-            top_k=config["top_k"],
-            top_p=config["top_p"],
-            do_sample=config["do_sample"],
-            repetition_penalty=config["repetition_penalty"],
-            min_new_tokens=config["min_new_tokens"],
-            max_new_tokens=config["warmup_max_new_tokens"],
+            **_sampling_kwargs(
+                config,
+                max_new_tokens=config["warmup_max_new_tokens"],
+            ),
         )
         warmup_seconds += time.perf_counter() - warmup_start
 
@@ -1376,13 +1540,10 @@ def _generate_audio_chunk(
         talker_config,
         model.predictor_graph,
         model.talker_graph,
-        temperature=config["temperature"],
-        top_k=config["top_k"],
-        top_p=config["top_p"],
-        do_sample=config["do_sample"],
-        repetition_penalty=config["repetition_penalty"],
-        min_new_tokens=config["min_new_tokens"],
-        max_new_tokens=config["max_new_tokens"],
+        **_sampling_kwargs(
+            config,
+            max_new_tokens=config["max_new_tokens"],
+        ),
     )
     generation_wall_seconds = time.perf_counter() - generation_start
     if codec_ids is None or codec_ids.numel() == 0:
@@ -1454,11 +1615,11 @@ def _generate_audio_chunk_streaming(
     model: Any,
     voice_clone_prompt: Any,
     text: str,
-    config: dict[str, Any],
+    config: TTSConfig,
     *,
     run_warmup: bool,
     seed: int,
-) -> tuple[Any, int, dict[str, Any]]:
+) -> tuple[Any, int, ChunkTiming]:
     """Collect the streaming API for an apples-to-apples finished-file test."""
     import numpy as np
     import torch
@@ -1473,7 +1634,7 @@ def _generate_audio_chunk_streaming(
     start = time.perf_counter()
     audio_parts: list[Any] = []
     sample_rate: int | None = None
-    last_timing: dict[str, Any] = {}
+    last_timing: ChunkTiming = {}
     stream = model.generate_voice_clone_streaming(
         text=text,
         language=config["language"],
@@ -1481,13 +1642,10 @@ def _generate_audio_chunk_streaming(
         voice_clone_prompt=voice_clone_prompt,
         non_streaming_mode=config["non_streaming_mode"],
         instruct=config["instruct"] or None,
-        temperature=config["temperature"],
-        top_k=config["top_k"],
-        top_p=config["top_p"],
-        do_sample=config["do_sample"],
-        repetition_penalty=config["repetition_penalty"],
-        min_new_tokens=config["min_new_tokens"],
-        max_new_tokens=config["max_new_tokens"],
+        **_sampling_kwargs(
+            config,
+            max_new_tokens=config["max_new_tokens"],
+        ),
     )
     for audio, chunk_sample_rate, timing in stream:
         if sample_rate is None:
@@ -1641,12 +1799,12 @@ class TextPrerollChunkGenerator:
         self,
         model: Any,
         voice_clone_prompt: Any,
-        config: dict[str, Any],
+        config: TTSConfig,
         fast_generate: Any,
         *,
         run_warmup: bool,
         seed: int,
-    ) -> tuple[dict[str, Any], bool]:
+    ) -> tuple[ChunkTiming, bool]:
         calibration_config = {**config, "codec_context_frames": 0}
         calibration_audio, sample_rate, timing = self.original_generator(
             model,
@@ -1682,15 +1840,15 @@ class TextPrerollChunkGenerator:
         model: Any,
         voice_clone_prompt: Any,
         text: str,
-        config: dict[str, Any],
+        config: TTSConfig,
         fast_generate: Any,
         *,
         run_warmup: bool,
         seed: int,
-        codec_context_state: dict[str, Any] | None = None,
-    ) -> tuple[Any, int, dict[str, Any]]:
+        codec_context_state: CodecContextState | None = None,
+    ) -> tuple[Any, int, ChunkTiming]:
         self.chunk_index += 1
-        calibration_timing: dict[str, Any] | None = None
+        calibration_timing: ChunkTiming | None = None
         calibration_used_warmup = False
         if self.expected_pause_start_sample is None:
             calibration_timing, calibration_used_warmup = self._calibrate(
@@ -1751,7 +1909,7 @@ class TextPrerollChunkGenerator:
         return audio[cut.cut_sample :], sample_rate, timing
 
 
-def prepare_generation_text(text: str, config: dict[str, Any]) -> str:
+def prepare_generation_text(text: str, config: TTSConfig) -> str:
     """Add the configured non-spoken tail marker to a TTS request."""
     prepared = text.rstrip()
     if not config["append_chunk_end_padding"]:
@@ -1762,12 +1920,54 @@ def prepare_generation_text(text: str, config: dict[str, Any]) -> str:
     return f"{prepared}{marker}"
 
 
-def generate_mp3(
+class _GenerationRuntime(NamedTuple):
+    model: Any
+    voice_clone_prompt: Any
+    fast_generate: Any
+    model_init_seconds: float
+    prompt_init_seconds: float
+
+
+@dataclass
+class _GenerationState:
+    audio_chunks: list[Any] = field(default_factory=list)
+    sample_rate: int | None = None
+    total_tts_seconds: float = 0.0
+    total_warmup_seconds: float = 0.0
+    postprocessing_seconds: float = 0.0
+    chunk_metrics: list[ChunkMetric] = field(default_factory=list)
+    reference_rms: float | None = None
+    codec_context_state: CodecContextState = field(
+        default_factory=lambda: {"codes": None}
+    )
+
+
+class _PostprocessedChunk(NamedTuple):
+    audio: Any
+    observed_rms: float
+    part_path: Path
+    elapsed_seconds: float
+
+
+class _FinalizedAudio(NamedTuple):
+    total_audio_duration: float
+    mp3_encoding_seconds: float
+    parts_deleted: bool
+
+
+def _normalize_text_chunks(
     chunks: list[str] | list[TextChunk],
-    output: Path,
-    config: dict[str, Any],
-) -> dict[str, Any]:
-    import numpy as np
+) -> list[TextChunk]:
+    normalized = [
+        chunk if isinstance(chunk, TextChunk) else TextChunk(chunk, "sentence")
+        for chunk in chunks
+    ]
+    if normalized:
+        normalized[-1] = TextChunk(normalized[-1].text, "end")
+    return normalized
+
+
+def _initialize_generation_runtime(config: TTSConfig) -> _GenerationRuntime:
     import torch
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -1781,14 +1981,6 @@ def generate_mp3(
         "float32": torch.float32,
     }
 
-    normalized_chunks = [
-        chunk if isinstance(chunk, TextChunk) else TextChunk(chunk, "sentence")
-        for chunk in chunks
-    ]
-    if normalized_chunks:
-        normalized_chunks[-1] = TextChunk(normalized_chunks[-1].text, "end")
-
-    total_start = time.perf_counter()
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
     print(f"Loading model from {config['model_path']}...")
@@ -1816,10 +2008,19 @@ def generate_mp3(
     prompt_start = time.perf_counter()
     voice_clone_prompt = load_voice_prompt(model, config)
     prompt_init_seconds = time.perf_counter() - prompt_start
+    return _GenerationRuntime(
+        model=model,
+        voice_clone_prompt=voice_clone_prompt,
+        fast_generate=fast_generate,
+        model_init_seconds=model_init_seconds,
+        prompt_init_seconds=prompt_init_seconds,
+    )
 
-    parts_directory = output.with_name(f"{output.stem}_parts")
-    if config["save_wav_parts"]:
-        parts_directory.mkdir(parents=True, exist_ok=True)
+
+def _build_chunk_generator(
+    config: TTSConfig,
+    parts_directory: Path,
+) -> tuple[Any, TextPrerollChunkGenerator | None]:
     chunk_generator = _generate_audio_chunk
     preroll_generator: TextPrerollChunkGenerator | None = None
     if config["text_preroll_enabled"]:
@@ -1838,17 +2039,264 @@ def generate_mp3(
         )
         chunk_generator = preroll_generator
         print(f"Fixed text preroll: {preroll_generator.sentence}")
+    return chunk_generator, preroll_generator
+
+
+def _run_chunk_generator(
+    runtime: _GenerationRuntime,
+    chunk_generator: Any,
+    generation_text: str,
+    config: TTSConfig,
+    *,
+    run_warmup: bool,
+    seed: int,
+    codec_context_state: CodecContextState,
+) -> tuple[Any, int, ChunkTiming]:
+    if config["generation_api"] == "streaming":
+        return _generate_audio_chunk_streaming(
+            runtime.model,
+            runtime.voice_clone_prompt,
+            generation_text,
+            config,
+            run_warmup=run_warmup,
+            seed=seed,
+        )
+    return chunk_generator(
+        runtime.model,
+        runtime.voice_clone_prompt,
+        generation_text,
+        config,
+        runtime.fast_generate,
+        run_warmup=run_warmup,
+        seed=seed,
+        codec_context_state=codec_context_state,
+    )
+
+
+def _accept_sample_rate(state: _GenerationState, chunk_sample_rate: int) -> None:
+    if state.sample_rate is None:
+        state.sample_rate = chunk_sample_rate
+    elif state.sample_rate != chunk_sample_rate:
+        raise RuntimeError(
+            "sample rate changed between chunks: "
+            f"{state.sample_rate} Hz vs {chunk_sample_rate} Hz"
+        )
+
+
+def _postprocess_chunk(
+    audio: Any,
+    chunk_sample_rate: int,
+    reference_rms: float | None,
+    config: TTSConfig,
+    *,
+    parts_directory: Path,
+    index: int,
+    part_number_width: int,
+) -> _PostprocessedChunk:
+    post_start = time.perf_counter()
+    processed = trim_excess_edge_silence(
+        audio,
+        chunk_sample_rate,
+        threshold_db=config["silence_threshold_db"],
+        max_leading_ms=config["max_leading_silence_ms"],
+        max_trailing_ms=config["max_trailing_silence_ms"],
+    )
+    processed, observed_rms = match_chunk_loudness(
+        processed,
+        reference_rms,
+        threshold_db=config["silence_threshold_db"],
+        max_adjustment_db=config["loudness_match_max_db"],
+    )
+    part_path = parts_directory / f"teil-{index:0{part_number_width}d}.wav"
+    if config["save_wav_parts"]:
+        write_wav(part_path, processed, chunk_sample_rate)
+    return _PostprocessedChunk(
+        audio=processed,
+        observed_rms=observed_rms,
+        part_path=part_path,
+        elapsed_seconds=time.perf_counter() - post_start,
+    )
+
+
+def _build_chunk_metric(
+    chunk: TextChunk,
+    audio: Any,
+    sample_rate: int,
+    timing: ChunkTiming,
+    *,
+    index: int,
+    seed: int,
+) -> ChunkMetric:
+    audio_duration = len(audio) / sample_rate
+    generation_time = timing["tts_wall_s"]
+    return {
+        "index": index,
+        "characters": len(chunk.text),
+        "boundary_after": chunk.boundary_after,
+        "seed": seed,
+        "audio_seconds": audio_duration,
+        "tts_seconds": generation_time,
+        "rtf": generation_time / audio_duration if audio_duration else 0.0,
+        "prefill_seconds": timing["prefill_ms"] / 1000,
+        "decode_seconds": timing["decode_s"],
+        "codec_decode_seconds": timing["codec_decode_s"],
+        "codec_context_frames": int(timing.get("codec_context_frames", 0)),
+        "steps": timing["steps"],
+    }
+
+
+def _finalize_audio(
+    state: _GenerationState,
+    normalized_chunks: list[TextChunk],
+    output: Path,
+    parts_directory: Path,
+    config: TTSConfig,
+) -> _FinalizedAudio:
+    if state.sample_rate is None:
+        raise RuntimeError("generation produced no audio chunks")
+
+    post_start = time.perf_counter()
+    combined_audio = join_audio_chunks(
+        state.audio_chunks,
+        normalized_chunks,
+        state.sample_rate,
+        config,
+    )
+    state.postprocessing_seconds += time.perf_counter() - post_start
+    encode_start = time.perf_counter()
+    write_mp3(output, combined_audio, state.sample_rate)
+    mp3_encoding_seconds = time.perf_counter() - encode_start
+    parts_deleted = False
+    if (
+        config["save_wav_parts"]
+        and config["parts_directory_policy"] == "delete"
+    ):
+        delete_parts_directory(parts_directory, output)
+        parts_deleted = True
+    return _FinalizedAudio(
+        total_audio_duration=len(combined_audio) / state.sample_rate,
+        mp3_encoding_seconds=mp3_encoding_seconds,
+        parts_deleted=parts_deleted,
+    )
+
+
+def _build_generation_report(
+    normalized_chunks: list[TextChunk],
+    output: Path,
+    config: TTSConfig,
+    runtime: _GenerationRuntime,
+    state: _GenerationState,
+    finalized: _FinalizedAudio,
+    preroll_generator: TextPrerollChunkGenerator | None,
+    *,
+    total_seconds: float,
+) -> GenerationReport:
+    import torch
+
+    peak_allocated = (
+        torch.cuda.max_memory_allocated() / 2**30
+        if torch.cuda.is_available()
+        else 0.0
+    )
+    peak_reserved = (
+        torch.cuda.max_memory_reserved() / 2**30
+        if torch.cuda.is_available()
+        else 0.0
+    )
+    total_rtf = (
+        state.total_tts_seconds / finalized.total_audio_duration
+        if finalized.total_audio_duration
+        else 0.0
+    )
+    total_characters = sum(len(chunk.text) for chunk in normalized_chunks)
+    return {
+        "model": config["model_path"],
+        "dtype": config["dtype"],
+        "mode": config["mode"],
+        "prompt_mode": "icl" if config["mode"] == "semantic_icl" else "x_vector",
+        "generation_api": config["generation_api"],
+        "codec_context_frames": config["codec_context_frames"],
+        "text_preroll_enabled": config["text_preroll_enabled"],
+        "text_preroll_sentence": (
+            preroll_generator.sentence if preroll_generator is not None else ""
+        ),
+        "append_chunk_end_padding": config["append_chunk_end_padding"],
+        "chunk_end_padding_text": config["chunk_end_padding_text"],
+        "output": str(output.resolve()),
+        "total_characters": total_characters,
+        "chunk_count": len(normalized_chunks),
+        "average_chunk_characters": (
+            total_characters / len(normalized_chunks) if normalized_chunks else 0.0
+        ),
+        "audio_seconds": finalized.total_audio_duration,
+        "total_seconds": total_seconds,
+        "model_init_seconds": runtime.model_init_seconds,
+        "prompt_init_seconds": runtime.prompt_init_seconds,
+        "warmup_seconds": state.total_warmup_seconds,
+        "tts_seconds": state.total_tts_seconds,
+        "postprocessing_seconds": state.postprocessing_seconds,
+        "mp3_encoding_seconds": finalized.mp3_encoding_seconds,
+        "rtf": total_rtf,
+        "x_realtime": (
+            finalized.total_audio_duration / state.total_tts_seconds
+            if state.total_tts_seconds
+            else 0.0
+        ),
+        "peak_vram_allocated_gib": peak_allocated,
+        "peak_vram_reserved_gib": peak_reserved,
+        "chunks": state.chunk_metrics,
+    }
+
+
+def _print_generation_summary(
+    chunk_count: int,
+    output: Path,
+    parts_directory: Path,
+    config: TTSConfig,
+    runtime: _GenerationRuntime,
+    state: _GenerationState,
+    finalized: _FinalizedAudio,
+    report: GenerationReport,
+) -> None:
+    print(
+        f"\nCombined {chunk_count} lossless PCM part(s) into {output} "
+        f"({finalized.total_audio_duration:.1f}s audio, "
+        f"{state.total_tts_seconds:.2f}s TTS, RTF {report['rtf']:.2f}, "
+        f"{report['x_realtime']:.2f}x realtime)"
+    )
+    print(
+        f"Init {runtime.model_init_seconds:.2f}s | "
+        f"warm-up {state.total_warmup_seconds:.2f}s | "
+        f"post {state.postprocessing_seconds:.2f}s | "
+        f"MP3 {finalized.mp3_encoding_seconds:.2f}s | "
+        f"peak VRAM {report['peak_vram_allocated_gib']:.2f} GiB allocated"
+    )
+    if finalized.parts_deleted:
+        print(f"Deleted temporary WAV parts: {parts_directory}")
+    elif config["save_wav_parts"]:
+        print(f"Lossless WAV parts: {parts_directory}")
+
+
+def generate_mp3(
+    chunks: list[str] | list[TextChunk],
+    output: Path,
+    config: TTSConfig,
+) -> GenerationReport:
+    normalized_chunks = _normalize_text_chunks(chunks)
+
+    total_start = time.perf_counter()
+    runtime = _initialize_generation_runtime(config)
+
+    parts_directory = output.with_name(f"{output.stem}_parts")
+    if config["save_wav_parts"]:
+        parts_directory.mkdir(parents=True, exist_ok=True)
+    chunk_generator, preroll_generator = _build_chunk_generator(
+        config, parts_directory
+    )
     if config["append_chunk_end_padding"]:
         print("Chunk end padding enabled: two line breaks and a period")
     part_number_width = max(3, len(str(len(chunks))))
-    audio_chunks: list[Any] = []
-    sample_rate: int | None = None
-    total_tts_seconds = 0.0
-    total_warmup_seconds = 0.0
-    postprocessing_seconds = 0.0
-    chunk_metrics: list[dict[str, Any]] = []
-    reference_rms: float | None = None
-    codec_context_state: dict[str, Any] = {"codes": None}
+    state = _GenerationState()
 
     print(f"Processing {len(chunks)} text chunk(s)...", flush=True)
     if config["generation_api"] == "non_streaming":
@@ -1880,169 +2328,80 @@ def generate_mp3(
             index - 1 if config["seed_strategy"] == "increment" else 0
         )
         generation_text = prepare_generation_text(chunk.text, config)
-        if config["generation_api"] == "streaming":
-            audio, chunk_sample_rate, timing = _generate_audio_chunk_streaming(
-                model,
-                voice_clone_prompt,
-                generation_text,
-                config,
-                run_warmup=index == 1,
-                seed=seed,
-            )
-        else:
-            audio, chunk_sample_rate, timing = chunk_generator(
-                model,
-                voice_clone_prompt,
-                generation_text,
-                config,
-                fast_generate,
-                run_warmup=index == 1,
-                seed=seed,
-                codec_context_state=codec_context_state,
-            )
-        if sample_rate is None:
-            sample_rate = chunk_sample_rate
-        elif sample_rate != chunk_sample_rate:
-            raise RuntimeError(
-                f"sample rate changed between chunks: "
-                f"{sample_rate} Hz vs {chunk_sample_rate} Hz"
-            )
+        audio, chunk_sample_rate, timing = _run_chunk_generator(
+            runtime,
+            chunk_generator,
+            generation_text,
+            config,
+            run_warmup=index == 1,
+            seed=seed,
+            codec_context_state=state.codec_context_state,
+        )
+        _accept_sample_rate(state, chunk_sample_rate)
 
-        post_start = time.perf_counter()
-        audio = trim_excess_edge_silence(
+        processed = _postprocess_chunk(
             audio,
             chunk_sample_rate,
-            threshold_db=config["silence_threshold_db"],
-            max_leading_ms=config["max_leading_silence_ms"],
-            max_trailing_ms=config["max_trailing_silence_ms"],
+            state.reference_rms,
+            config,
+            parts_directory=parts_directory,
+            index=index,
+            part_number_width=part_number_width,
         )
-        audio, observed_rms = match_chunk_loudness(
-            audio,
-            reference_rms,
-            threshold_db=config["silence_threshold_db"],
-            max_adjustment_db=config["loudness_match_max_db"],
-        )
-        if reference_rms is None and observed_rms > 0:
-            reference_rms = observed_rms
-        part_path = parts_directory / f"teil-{index:0{part_number_width}d}.wav"
-        if config["save_wav_parts"]:
-            write_wav(part_path, audio, chunk_sample_rate)
-        postprocessing_seconds += time.perf_counter() - post_start
-        audio_chunks.append(audio)
+        if state.reference_rms is None and processed.observed_rms > 0:
+            state.reference_rms = processed.observed_rms
+        state.postprocessing_seconds += processed.elapsed_seconds
+        state.audio_chunks.append(processed.audio)
 
-        steps = timing["steps"]
-        audio_duration = len(audio) / chunk_sample_rate
-        generation_time = timing["tts_wall_s"]
-        total_tts_seconds += generation_time
-        total_warmup_seconds += timing["warmup_s"]
-        rtf = generation_time / audio_duration if audio_duration else 0.0
-        chunk_metrics.append(
-            {
-                "index": index,
-                "characters": len(chunk.text),
-                "boundary_after": chunk.boundary_after,
-                "seed": seed,
-                "audio_seconds": audio_duration,
-                "tts_seconds": generation_time,
-                "rtf": rtf,
-                "prefill_seconds": timing["prefill_ms"] / 1000,
-                "decode_seconds": timing["decode_s"],
-                "codec_decode_seconds": timing["codec_decode_s"],
-                "codec_context_frames": int(
-                    timing.get("codec_context_frames", 0)
-                ),
-                "steps": steps,
-            }
+        metric = _build_chunk_metric(
+            chunk,
+            processed.audio,
+            chunk_sample_rate,
+            timing,
+            index=index,
+            seed=seed,
         )
+        state.total_tts_seconds += metric["tts_seconds"]
+        state.total_warmup_seconds += timing["warmup_s"]
+        state.chunk_metrics.append(metric)
         print(
-            f"{'Saved ' + str(part_path) if config['save_wav_parts'] else 'Generated'} "
-            f"({audio_duration:.1f}s audio, {generation_time:.2f}s TTS, "
-            f"RTF {rtf:.2f})"
+            f"{'Saved ' + str(processed.part_path) if config['save_wav_parts'] else 'Generated'} "
+            f"({metric['audio_seconds']:.1f}s audio, "
+            f"{metric['tts_seconds']:.2f}s TTS, RTF {metric['rtf']:.2f})"
         )
         print(
             f"  Prefill: {timing['prefill_ms']:.0f}ms | "
-            f"Decode: {steps} steps @ {timing['ms_per_step']:.1f}ms/step"
+            f"Decode: {metric['steps']} steps @ {timing['ms_per_step']:.1f}ms/step"
         )
 
-    if sample_rate is None:
-        raise RuntimeError("generation produced no audio chunks")
-
-    post_start = time.perf_counter()
-    combined_audio = join_audio_chunks(
-        audio_chunks, normalized_chunks, sample_rate, config
-    )
-    postprocessing_seconds += time.perf_counter() - post_start
-    encode_start = time.perf_counter()
-    write_mp3(output, combined_audio, sample_rate)
-    mp3_encoding_seconds = time.perf_counter() - encode_start
-    parts_deleted = False
-    if (
-        config["save_wav_parts"]
-        and config["parts_directory_policy"] == "delete"
-    ):
-        delete_parts_directory(parts_directory, output)
-        parts_deleted = True
-    total_audio_duration = len(combined_audio) / sample_rate
-    total_rtf = (
-        total_tts_seconds / total_audio_duration if total_audio_duration else 0.0
-    )
-    peak_allocated = (
-        torch.cuda.max_memory_allocated() / 2**30 if torch.cuda.is_available() else 0.0
-    )
-    peak_reserved = (
-        torch.cuda.max_memory_reserved() / 2**30 if torch.cuda.is_available() else 0.0
+    finalized = _finalize_audio(
+        state,
+        normalized_chunks,
+        output,
+        parts_directory,
+        config,
     )
     total_seconds = time.perf_counter() - total_start
-    report = {
-        "model": config["model_path"],
-        "dtype": config["dtype"],
-        "mode": config["mode"],
-        "prompt_mode": "icl" if config["mode"] == "semantic_icl" else "x_vector",
-        "generation_api": config["generation_api"],
-        "codec_context_frames": config["codec_context_frames"],
-        "text_preroll_enabled": config["text_preroll_enabled"],
-        "text_preroll_sentence": (
-            preroll_generator.sentence if preroll_generator is not None else ""
-        ),
-        "append_chunk_end_padding": config["append_chunk_end_padding"],
-        "chunk_end_padding_text": config["chunk_end_padding_text"],
-        "output": str(output.resolve()),
-        "total_characters": sum(len(chunk.text) for chunk in normalized_chunks),
-        "chunk_count": len(normalized_chunks),
-        "average_chunk_characters": (
-            sum(len(chunk.text) for chunk in normalized_chunks) / len(normalized_chunks)
-            if normalized_chunks
-            else 0.0
-        ),
-        "audio_seconds": total_audio_duration,
-        "total_seconds": total_seconds,
-        "model_init_seconds": model_init_seconds,
-        "prompt_init_seconds": prompt_init_seconds,
-        "warmup_seconds": total_warmup_seconds,
-        "tts_seconds": total_tts_seconds,
-        "postprocessing_seconds": postprocessing_seconds,
-        "mp3_encoding_seconds": mp3_encoding_seconds,
-        "rtf": total_rtf,
-        "x_realtime": total_audio_duration / total_tts_seconds if total_tts_seconds else 0.0,
-        "peak_vram_allocated_gib": peak_allocated,
-        "peak_vram_reserved_gib": peak_reserved,
-        "chunks": chunk_metrics,
-    }
-    print(
-        f"\nCombined {len(chunks)} lossless PCM part(s) into {output} "
-        f"({total_audio_duration:.1f}s audio, "
-        f"{total_tts_seconds:.2f}s TTS, RTF {total_rtf:.2f}, "
-        f"{report['x_realtime']:.2f}x realtime)"
+    report = _build_generation_report(
+        normalized_chunks,
+        output,
+        config,
+        runtime,
+        state,
+        finalized,
+        preroll_generator,
+        total_seconds=total_seconds,
     )
-    print(
-        f"Init {model_init_seconds:.2f}s | warm-up {total_warmup_seconds:.2f}s | "
-        f"post {postprocessing_seconds:.2f}s | MP3 {mp3_encoding_seconds:.2f}s | "
-        f"peak VRAM {peak_allocated:.2f} GiB allocated"
+    _print_generation_summary(
+        len(chunks),
+        output,
+        parts_directory,
+        config,
+        runtime,
+        state,
+        finalized,
+        report,
     )
-    if parts_deleted:
-        print(f"Deleted temporary WAV parts: {parts_directory}")
-    elif config["save_wav_parts"]:
-        print(f"Lossless WAV parts: {parts_directory}")
     return report
 
 
