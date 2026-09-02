@@ -95,7 +95,7 @@ Der entsprechende direkte Aufruf lautet:
 Der zuletzt verifizierte Stand der gezielten Testsuite war:
 
 ```text
-82 passed, 3 xfailed, 33 subtests passed
+88 passed, 3 xfailed, 32 subtests passed
 Branch Coverage für generate: 97 %
 ```
 
@@ -249,11 +249,13 @@ blinder Zeitschnitt oder die Auswahl einer weiter entfernten Pause wurde nicht
 eingeführt. Ein neuer Regressionstest bildet eine solche Pause mit niedrigem
 Restpegel nach.
 
-### Optionale Textbereinigung mit `--clear_markdown`
+### Konfigurierbare Standard-Textbereinigung `clear_markdown`
 
-Der CLI-Switch `--clear_markdown` beziehungsweise `--clear-markdown` bereinigt
-den Eingabetext vor dem Chunking. Ohne den Switch bleibt der bisherige
-Textpfad unverändert. Die Bereinigung umfasst:
+Der Konfigurationswert `clear_markdown` bereinigt den Eingabetext vor dem
+Chunking und ist in `generate/config.json` sowie im eingebauten Standard auf
+`true` gesetzt. `--clear-markdown` erzwingt die Aktivierung;
+`--no-clear-markdown` deaktiviert sie für einen einzelnen Lauf. Die
+Bereinigung umfasst:
 
 - die vereinbarten deutschen Abkürzungen,
 - Pluszeichen als Markdown-Listenmarker am Zeilenanfang,
@@ -261,6 +263,9 @@ Textpfad unverändert. Die Bereinigung umfasst:
 - gültige deutsche und ISO-Datumsangaben in deutscher Langform,
 - alleinstehende fenced Codeblöcke,
 - `Quelle:`-Zeilen mit HTTP-/HTTPS-URL,
+- `Datum:`-Zeilen mit einem alleinstehenden formal passenden Datum, ohne
+  Prüfung der Kalendergültigkeit,
+- Markdown-Hervorhebungen um `Quelle:`, `Datum:` oder deren vollständige Zeile,
 - Markdown-Weblinks, HTTP-/HTTPS-URLs und `www.`-URLs.
 
 Inline-Code und unvollständige Code-Fences bleiben erhalten. Bei
@@ -270,8 +275,9 @@ entfernt, beendet sich die CLI mit einem verständlichen Eingabefehler.
 
 Mit `--print_cleaned_text` kann der bereinigte Text auf stdout ausgegeben
 werden. `--write_cleaned_text PATH` schreibt denselben Text als UTF-8-Datei.
-Beide Optionen setzen `--clear_markdown` voraus, können kombiniert werden und
-beenden das Programm vor dem Laden von Konfiguration, TTS-Modell oder CUDA.
+Beide Optionen setzen einen effektiv aktivierten Config-/CLI-Wert voraus,
+können kombiniert werden und beenden das Programm vor dem Laden der
+vollständigen TTS-Konfiguration, des TTS-Modells oder von CUDA.
 Die Statusmeldung der Dateiausgabe geht an stderr, sodass stdout für Pipes nur
 den bereinigten Text enthält. Auch die Schreibweisen `--print-cleaned-text`
 und `--write-cleaned-text` werden akzeptiert.
@@ -340,7 +346,7 @@ Für jeden größeren Schritt sollte weiterhin gelten:
 
 1. Nur eine zusammengehörige Strukturänderung durchführen.
 2. `test_generate_mp3_with_embedding.cmd` ausführen.
-3. Prüfen, dass weiterhin `82 passed`, `3 xfailed` und die Subtests erfolgreich
+3. Prüfen, dass weiterhin `88 passed`, `3 xfailed` und die Subtests erfolgreich
    gemeldet werden, solange keine bewusste Fehlerbehebung erfolgt ist.
 4. Bei verändertem Verhalten zuerst klären, ob es eine Regression oder eine
    gewollte Vertragsänderung ist.

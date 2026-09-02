@@ -124,10 +124,18 @@ class GenerateMp3WithEmbeddingTests(unittest.TestCase):
         dashed = parser.parse_args(
             ["--text", "Hallo.", "--output", "out.mp3", "--clear-markdown"]
         )
+        disabled_underscored = parser.parse_args(
+            ["--text", "Hallo.", "--output", "out.mp3", "--no_clear_markdown"]
+        )
+        disabled_dashed = parser.parse_args(
+            ["--text", "Hallo.", "--output", "out.mp3", "--no-clear-markdown"]
+        )
 
-        self.assertFalse(plain.clear_markdown)
+        self.assertIsNone(plain.clear_markdown)
         self.assertTrue(underscored.clear_markdown)
         self.assertTrue(dashed.clear_markdown)
+        self.assertFalse(disabled_underscored.clear_markdown)
+        self.assertFalse(disabled_dashed.clear_markdown)
 
     def test_parser_accepts_cleaned_text_output_switches_and_aliases(self):
         parser = MODULE.build_parser()
@@ -191,6 +199,38 @@ class GenerateMp3WithEmbeddingTests(unittest.TestCase):
             self.assertTrue(config["text_preroll_sentence"].endswith("\n\n."))
             self.assertTrue(config["append_chunk_end_padding"])
             self.assertEqual(config["chunk_end_padding_text"], "\n\n.")
+            self.assertTrue(config["clear_markdown"])
+
+    def test_resolve_clear_markdown_setting_uses_cli_then_config_then_default(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.json"
+
+            self.assertTrue(
+                MODULE.resolve_clear_markdown_setting(config_path, True)
+            )
+            self.assertFalse(
+                MODULE.resolve_clear_markdown_setting(config_path, False)
+            )
+
+            config_path.write_text(
+                json.dumps({"clear_markdown": False}),
+                encoding="utf-8",
+            )
+            self.assertFalse(
+                MODULE.resolve_clear_markdown_setting(config_path, None)
+            )
+
+            config_path.write_text(json.dumps({}), encoding="utf-8")
+            self.assertTrue(
+                MODULE.resolve_clear_markdown_setting(config_path, None)
+            )
+
+            config_path.write_text(
+                json.dumps({"clear_markdown": "yes"}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "clear_markdown.*must be bool"):
+                MODULE.resolve_clear_markdown_setting(config_path, None)
 
     def test_cli_tts_arguments_override_config(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -403,6 +443,50 @@ class GenerateMp3WithEmbeddingTests(unittest.TestCase):
             "E-Mail test@example.org bleibt.",
         )
 
+    def test_clear_markdown_removes_date_lines_without_calendar_validation(self):
+        text = (
+            "Vorher.\n"
+            "Datum: 01.08.2026\n"
+            "  datum: 2026-08-02.  \n"
+            "Quelle: 03.08.2026\n"
+            "Datum: 31.02.2026\n"
+            "Datum: 99.99.9999\n"
+            "Datum: 01.08.2026, Seite 4\n"
+            "Quelle: https://example.org/beleg\n"
+            "Nachher."
+        )
+
+        self.assertEqual(
+            MODULE.clear_markdown_text(text),
+            "Vorher.\n"
+            "Quelle: Dritter August 2026\n"
+            "Datum: Erster August 2026, Seite 4\n"
+            "Nachher.",
+        )
+
+    def test_clear_markdown_removes_markdown_formatted_source_and_date_lines(self):
+        text = (
+            "Vorher.\n"
+            "_Quelle: https://sample.com/quelle_\n"
+            "**Quelle: https:://sample.com/quelle**\n"
+            "*Quelle: https://sample.com/quelle*\n"
+            "**Quelle:** https://sample.com/quelle\n"
+            "__Quelle__: https://sample.com/quelle\n"
+            "> **Quelle:** https://sample.com/quelle\n"
+            "_Datum: 01.08.2026_\n"
+            "**Datum: 2026-08-01**\n"
+            "*Datum: 31.02.2026*\n"
+            "**Datum:** 99.99.9999\n"
+            "__Datum__: **02.08.2026**\n"
+            "### **Datum:** 2026-08-03\n"
+            "Nachher."
+        )
+
+        self.assertEqual(
+            MODULE.clear_markdown_text(text),
+            "Vorher.\nNachher.",
+        )
+
     def test_clear_markdown_preserves_unclosed_fence(self):
         text = "Vorher.\n```python\nprint('unvollständig')"
 
@@ -434,6 +518,7 @@ class GenerateMp3WithEmbeddingTests(unittest.TestCase):
                 ({"temperature": "hot"}, "must be float"),
                 ({"top_k": True}, "must be int"),
                 ({"do_sample": 1}, "must be bool"),
+                ({"clear_markdown": "yes"}, "clear_markdown.*must be bool"),
                 ({"dtype": "int8"}, "dtype.*one of"),
                 ({"mode": "unknown"}, "mode.*one of"),
                 ({"generation_api": "batch"}, "generation_api.*one of"),
@@ -954,6 +1039,7 @@ class GenerateMp3WithEmbeddingTests(unittest.TestCase):
             self.assertTrue(all(call.kwargs.get("flush") for call in chunk_status_calls))
             self.assertEqual(report["chunk_count"], 2)
             self.assertEqual(report["codec_context_frames"], 8)
+            self.assertTrue(report["clear_markdown"])
             self.assertIn("peak_vram_allocated_gib", report)
 
     def test_generate_mp3_applies_preroll_and_end_padding_to_first_chunk(self):
@@ -1873,6 +1959,7 @@ class GenerateMp3WithEmbeddingTests(unittest.TestCase):
                 speaker,
                 mode="legacy",
                 speak_numbered_lists=False,
+                clear_markdown=False,
             )
             output = directory / "result.mp3"
 
@@ -1902,6 +1989,80 @@ class GenerateMp3WithEmbeddingTests(unittest.TestCase):
                 ["Termin: Erster August 2026.\nAblauf: erstens starten."],
             )
             self.assertEqual(passed_output, output)
+
+    def test_main_uses_configured_clear_markdown_default(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            speaker = directory / "voice.pt"
+            speaker.touch()
+            config_path = directory / "config.json"
+            _write_config(
+                config_path,
+                speaker,
+                mode="legacy",
+                speak_numbered_lists=False,
+                clear_markdown=True,
+            )
+
+            with mock.patch.object(
+                MODULE,
+                "generate_mp3",
+                return_value={"status": "ok"},
+            ) as generate:
+                result = MODULE.main(
+                    [
+                        "--text",
+                        "Datum: 31.02.2026\nText bleibt.",
+                        "--output",
+                        str(directory / "result.mp3"),
+                        "--config",
+                        str(config_path),
+                    ]
+                )
+
+            self.assertEqual(result, 0)
+            chunks, _, passed_config = generate.call_args.args
+            self.assertEqual([chunk.text for chunk in chunks], ["Text bleibt."])
+            self.assertTrue(passed_config["clear_markdown"])
+
+    def test_main_no_clear_markdown_overrides_configured_default(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            speaker = directory / "voice.pt"
+            speaker.touch()
+            config_path = directory / "config.json"
+            _write_config(
+                config_path,
+                speaker,
+                mode="legacy",
+                speak_numbered_lists=False,
+                clear_markdown=True,
+            )
+
+            with mock.patch.object(
+                MODULE,
+                "generate_mp3",
+                return_value={"status": "ok"},
+            ) as generate:
+                result = MODULE.main(
+                    [
+                        "--text",
+                        "Datum: 31.02.2026\nText bleibt.",
+                        "--output",
+                        str(directory / "result.mp3"),
+                        "--config",
+                        str(config_path),
+                        "--no-clear-markdown",
+                    ]
+                )
+
+            self.assertEqual(result, 0)
+            chunks, _, passed_config = generate.call_args.args
+            self.assertEqual(
+                [chunk.text for chunk in chunks],
+                ["Datum: 31.02.2026\nText bleibt."],
+            )
+            self.assertFalse(passed_config["clear_markdown"])
 
     def test_main_prints_and_writes_cleaned_text_without_loading_tts(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1933,15 +2094,55 @@ class GenerateMp3WithEmbeddingTests(unittest.TestCase):
             load_config.assert_not_called()
             generate.assert_not_called()
 
-    def test_main_requires_clear_markdown_for_cleaned_text_outputs(self):
-        for option in ("--print_cleaned_text", "--write_cleaned_text"):
-            with self.subTest(option=option):
-                argv = ["--text", "Hallo.", option]
-                if option == "--write_cleaned_text":
-                    argv.append("cleaned.md")
-                with self.assertRaises(SystemExit) as raised:
-                    MODULE.main(argv)
-                self.assertEqual(raised.exception.code, 2)
+    def test_main_cleaned_text_output_uses_configured_default(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            config_path = directory / "config.json"
+            config_path.write_text(
+                json.dumps({"clear_markdown": True}),
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+            with (
+                mock.patch("sys.stdout", stdout),
+                mock.patch.object(MODULE, "load_config") as load_config,
+                mock.patch.object(MODULE, "generate_mp3") as generate,
+            ):
+                result = MODULE.main(
+                    [
+                        "--text",
+                        "Datum: 31.02.2026\nText bleibt.",
+                        "--config",
+                        str(config_path),
+                        "--print_cleaned_text",
+                    ]
+                )
+
+            self.assertEqual(result, 0)
+            self.assertEqual(stdout.getvalue(), "Text bleibt.\n")
+            load_config.assert_not_called()
+            generate.assert_not_called()
+
+    def test_main_rejects_cleaned_text_output_when_effective_default_is_disabled(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.json"
+            config_path.write_text(
+                json.dumps({"clear_markdown": False}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(SystemExit) as raised:
+                MODULE.main(
+                    [
+                        "--text",
+                        "Hallo.",
+                        "--config",
+                        str(config_path),
+                        "--print_cleaned_text",
+                    ]
+                )
+
+            self.assertEqual(raised.exception.code, 2)
 
     def test_main_rejects_input_removed_entirely_by_clear_markdown(self):
         with self.assertRaises(SystemExit) as raised:

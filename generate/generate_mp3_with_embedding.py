@@ -101,6 +101,7 @@ class TTSConfig(TypedDict):
     save_wav_parts: bool
     parts_directory_policy: PartsDirectoryPolicy
     speak_numbered_lists: bool
+    clear_markdown: bool
     ref_audio: Path | None
     ref_text: str
     ref_text_file: Path | None
@@ -144,6 +145,7 @@ class GenerationReport(TypedDict):
     model: str
     dtype: DTypeName
     mode: Mode
+    clear_markdown: bool
     prompt_mode: Literal["icl", "x_vector"]
     generation_api: GenerationAPI
     codec_context_frames: int
@@ -217,6 +219,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "save_wav_parts": True,
     "parts_directory_policy": "delete",
     "speak_numbered_lists": True,
+    "clear_markdown": True,
     "ref_audio": "",
     "ref_text": "",
     "ref_text_file": "",
@@ -388,22 +391,32 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Append two line breaks and a period to every complete sentence",
     )
-    parser.add_argument(
+    clear_markdown_group = parser.add_mutually_exclusive_group()
+    clear_markdown_group.add_argument(
         "--clear_markdown",
         "--clear-markdown",
+        dest="clear_markdown",
         action="store_true",
         help=(
-            "Prepare German Markdown-like text for speech by normalizing "
-            "abbreviations, lists, dates, code blocks, and URLs"
+            "Enable German Markdown-like text cleanup, overriding the "
+            "configured default"
         ),
     )
+    clear_markdown_group.add_argument(
+        "--no_clear_markdown",
+        "--no-clear-markdown",
+        dest="clear_markdown",
+        action="store_false",
+        help="Disable Markdown-like text cleanup, overriding the configured default",
+    )
+    parser.set_defaults(clear_markdown=None)
     parser.add_argument(
         "--print_cleaned_text",
         "--print-cleaned-text",
         action="store_true",
         help=(
-            "Print text processed by --clear_markdown and exit before loading "
-            "the TTS model"
+            "Print text processed by the effective clear_markdown setting and "
+            "exit before loading the TTS model"
         ),
     )
     parser.add_argument(
@@ -412,8 +425,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="PATH",
         help=(
-            "Write text processed by --clear_markdown as UTF-8 and exit before "
-            "loading the TTS model"
+            "Write text processed by the effective clear_markdown setting as "
+            "UTF-8 and exit before loading the TTS model"
         ),
     )
     parser.add_argument(
@@ -447,11 +460,7 @@ def _require_type(config: dict[str, Any], key: str, expected: type) -> None:
         raise ValueError(f"config value {key!r} must be {expected.__name__}")
 
 
-def load_config(
-    path: Path,
-    cli_overrides: dict[str, Any] | None = None,
-) -> TTSConfig:
-    """Load, merge, apply CLI overrides, and validate the TTS configuration."""
+def _read_config_object(path: Path) -> dict[str, Any]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8-sig"))
     except FileNotFoundError as exc:
@@ -464,9 +473,35 @@ def load_config(
     if not isinstance(raw, dict):
         raise ValueError("config must contain a JSON object")
 
+    return raw
+
+
+def _reject_unknown_config_values(raw: dict[str, Any]) -> None:
     unknown = sorted(set(raw) - set(DEFAULT_CONFIG))
     if unknown:
         raise ValueError(f"unknown config value(s): {', '.join(unknown)}")
+
+
+def resolve_clear_markdown_setting(path: Path, cli_override: bool | None) -> bool:
+    """Resolve the CLI override or read only its configured boolean default."""
+    if cli_override is not None:
+        return cli_override
+
+    raw = _read_config_object(path)
+    _reject_unknown_config_values(raw)
+    value = raw.get("clear_markdown", DEFAULT_CONFIG["clear_markdown"])
+    if not isinstance(value, bool):
+        raise ValueError("config value 'clear_markdown' must be bool")
+    return value
+
+
+def load_config(
+    path: Path,
+    cli_overrides: dict[str, Any] | None = None,
+) -> TTSConfig:
+    """Load, merge, apply CLI overrides, and validate the TTS configuration."""
+    raw = _read_config_object(path)
+    _reject_unknown_config_values(raw)
 
     speaker_from_cli = bool(
         cli_overrides and cli_overrides.get("speaker") is not None
@@ -538,6 +573,7 @@ def load_config(
         "non_streaming_mode",
         "save_wav_parts",
         "speak_numbered_lists",
+        "clear_markdown",
         "text_preroll_enabled",
         "append_chunk_end_padding",
     ):
@@ -809,7 +845,16 @@ _STANDALONE_FENCE_RE = re.compile(
     r"^[ \t]*(?P<fence>`{3,}|~{3,})[^\r\n]*(?:\r?\n)?$"
 )
 _SOURCE_URL_LINE_RE = re.compile(
-    r"^[ \t]*Quelle:[ \t]*https?://[^\r\n]*(?:\r?\n|$)",
+    r"^[ \t]*(?:(?:#{1,6}|>|[-+*])[ \t]+)?"
+    r"[*_~`]*Quelle[*_~`]*:[ \t*_~`]*"
+    r"https?::?//[^\r\n]*(?:\r?\n|$)",
+    re.IGNORECASE | re.MULTILINE,
+)
+_DATE_LINE_RE = re.compile(
+    r"^[ \t]*(?:(?:#{1,6}|>|[-+*])[ \t]+)?"
+    r"[*_~`]*Datum[*_~`]*:[ \t*_~`]*"
+    r"(?:\d{4}-\d{2}-\d{2}|\d{2}\.\d{2}\.\d{4})"
+    r"[ \t]*\.?[ \t]*[*_~`]*[ \t]*(?:\r?\n|$)",
     re.IGNORECASE | re.MULTILINE,
 )
 _MARKDOWN_HTTP_LINK_RE = re.compile(
@@ -906,10 +951,11 @@ def _normalize_inline_numbered_lists(text: str) -> str:
 
 
 def clear_markdown_text(text: str) -> str:
-    """Apply the opt-in German text cleanup used by ``--clear_markdown``."""
+    """Apply the configured German Markdown-like text cleanup."""
     cleaned = text.replace("\r\n", "\n").replace("\r", "\n")
     cleaned = _remove_standalone_fenced_code_blocks(cleaned)
     cleaned = _SOURCE_URL_LINE_RE.sub("", cleaned)
+    cleaned = _DATE_LINE_RE.sub("", cleaned)
     cleaned = _MARKDOWN_HTTP_LINK_RE.sub(r"\1", cleaned)
     cleaned = _HTTP_AUTOLINK_RE.sub("", cleaned)
     cleaned = _BARE_URL_RE.sub("", cleaned)
@@ -2465,6 +2511,7 @@ def _build_generation_report(
         "model": config["model_path"],
         "dtype": config["dtype"],
         "mode": config["mode"],
+        "clear_markdown": config["clear_markdown"],
         "prompt_mode": "icl" if config["mode"] == "semantic_icl" else "x_vector",
         "generation_api": config["generation_api"],
         "codec_context_frames": config["codec_context_frames"],
@@ -2666,12 +2713,51 @@ def main(argv: list[str] | None = None) -> int:
         text_only_requested = bool(
             args.print_cleaned_text or args.write_cleaned_text is not None
         )
-        if text_only_requested and not args.clear_markdown:
-            raise ValueError(
-                "--print_cleaned_text and --write_cleaned_text require "
-                "--clear_markdown"
+        if text_only_requested:
+            clear_markdown_enabled = resolve_clear_markdown_setting(
+                args.config,
+                args.clear_markdown,
             )
-        if args.clear_markdown:
+            config: TTSConfig | None = None
+            output: Path | None = None
+        else:
+            output = resolve_output_path(args.output, args.input)
+            config = load_config(
+                args.config,
+                cli_overrides={
+                    "speaker": args.speaker,
+                    "language": args.language,
+                    "model_path": args.model_path,
+                    "device": args.device,
+                    "dtype": args.dtype,
+                    "seed": args.seed,
+                    "mode": args.mode,
+                    "generation_api": args.generation_api,
+                    "target_chunk_chars": args.target_chars,
+                    "max_chunk_chars": args.characters,
+                    "clear_markdown": args.clear_markdown,
+                    "ref_audio": (
+                        str(args.ref_audio.resolve())
+                        if args.ref_audio is not None
+                        else None
+                    ),
+                    "ref_text": args.ref_text,
+                    "ref_text_file": (
+                        str(args.ref_text_file.resolve())
+                        if args.ref_text_file is not None
+                        else ("" if args.ref_text is not None else None)
+                    ),
+                    "instruct": args.instruct,
+                },
+            )
+            clear_markdown_enabled = config["clear_markdown"]
+
+        if text_only_requested and not clear_markdown_enabled:
+            raise ValueError(
+                "--print_cleaned_text and --write_cleaned_text require the "
+                "effective clear_markdown setting to be enabled"
+            )
+        if clear_markdown_enabled:
             text = clear_markdown_text(text)
             if not text:
                 raise ValueError("input text is empty after --clear_markdown")
@@ -2682,32 +2768,7 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write(f"{text}\n")
         if text_only_requested:
             return 0
-        output = resolve_output_path(args.output, args.input)
-        config = load_config(
-            args.config,
-            cli_overrides={
-                "speaker": args.speaker,
-                "language": args.language,
-                "model_path": args.model_path,
-                "device": args.device,
-                "dtype": args.dtype,
-                "seed": args.seed,
-                "mode": args.mode,
-                "generation_api": args.generation_api,
-                "target_chunk_chars": args.target_chars,
-                "max_chunk_chars": args.characters,
-                "ref_audio": (
-                    str(args.ref_audio.resolve()) if args.ref_audio is not None else None
-                ),
-                "ref_text": args.ref_text,
-                "ref_text_file": (
-                    str(args.ref_text_file.resolve())
-                    if args.ref_text_file is not None
-                    else ("" if args.ref_text is not None else None)
-                ),
-                "instruct": args.instruct,
-            },
-        )
+        assert config is not None and output is not None
         if args.no_wav_parts:
             config["save_wav_parts"] = False
         if args.mode == "legacy" and args.characters is not None:

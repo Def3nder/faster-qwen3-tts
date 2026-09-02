@@ -3,12 +3,13 @@
 ## Zweck
 
 Diese Datei dokumentiert die Arbeiten rund um die TTS-Sprachqualitätstests und
-die optionale Textvorverarbeitung `--clear_markdown` in
+die konfigurierbare Textvorverarbeitung `clear_markdown` in
 `generate/generate_mp3_with_embedding.py`.
 
 Die Vorverarbeitung soll für TTS ungeeignete Schreibweisen gezielt ersetzen
-oder entfernen. Ohne den Switch bleibt der bisherige Eingabetext unverändert.
-Das Programm bleibt weiterhin ein einzelnes Python-Script.
+oder entfernen. Sie ist in `generate/config.json` standardmäßig aktiviert und
+kann pro Aufruf über die CLI ein- oder ausgeschaltet werden. Das Programm
+bleibt weiterhin ein einzelnes Python-Script.
 
 ## Ausgangslage
 
@@ -43,6 +44,7 @@ Das Verzeichnis `samples/tts_sprachqualitaet_tests/` enthält:
 - `gemischter_abschlusstest.md`
 - `markdown_codeblock.md`
 - `markdown_textformatierungen.md`
+- `datumszeilen_mit_datum.md`
 - `satz_und_absatzpausen.md`
 - `satzzeichen_und_intonation.md`
 - `sonderzeichen_und_namensaussprache.md`
@@ -54,21 +56,35 @@ Das Verzeichnis `samples/tts_sprachqualitaet_tests/` enthält:
 Alle Dateien wurden als UTF-8 eingelesen und ohne Modellinitialisierung mit dem
 semantischen Chunker geprüft.
 
-## CLI-Switch `--clear_markdown`
+## Konfigurierbarer Standard `clear_markdown`
 
-Der neue Switch wird vor dem Chunking angewendet:
+Die Beispielkonfiguration enthält:
+
+```json
+"clear_markdown": true
+```
+
+Wenn kein CLI-Override angegeben wird, gilt dieser konfigurierte Wert. Daher
+wird die Bereinigung im normalen Aufruf standardmäßig vor dem Chunking
+angewendet:
 
 ```cmd
 python generate\generate_mp3_with_embedding.py ^
   --speaker voices\Sachbuch-Autor ^
-  --input samples\tts_sprachqualitaet_tests\datumsangaben.md ^
-  --clear_markdown
+  --input samples\tts_sprachqualitaet_tests\datumsangaben.md
 ```
 
-Auch die Schreibweise `--clear-markdown` wird akzeptiert.
+Die Priorität lautet:
 
-Ohne `--clear_markdown` wird keine der nachfolgend beschriebenen
-Transformationen ausgeführt.
+1. `--clear-markdown` beziehungsweise `--clear_markdown` erzwingt die
+   Aktivierung.
+2. `--no-clear-markdown` beziehungsweise `--no_clear_markdown` erzwingt die
+   Deaktivierung.
+3. Ohne CLI-Option gilt `clear_markdown` aus der ausgewählten Konfiguration.
+4. Fehlt der Schlüssel dort, gilt der eingebaute Standard `true`.
+
+Der effektive Wert wird außerdem als `clear_markdown` im Generation-Report
+gespeichert.
 
 ## Implementierte Transformationen
 
@@ -172,6 +188,44 @@ Quelle: http://example.org
 Quelle: https://example.org/artikel
 ```
 
+Markdown-Hervorhebungen dürfen dabei die ganze Zeile, den Bezeichner oder den
+Wert umschließen. Unterstützt werden Sternchen, Unterstriche,
+Durchstreichungsmarker und Backticks sowie ein vorangestelltes
+Überschriften-, Blockzitat- oder Listenpräfix. Beispiele:
+
+```text
+_Quelle: https://example.org_
+**Quelle: https://example.org**
+*Quelle: https://example.org*
+**Quelle:** https://example.org
+__Quelle__: https://example.org
+> **Quelle:** https://example.org
+```
+
+Bei einer `Quelle:`-Zeile wird auch die in den Testdaten vorgekommene
+fehlerhafte Schreibweise `https:://` tolerant als URL erkannt.
+
+Eine davon getrennte Regel entfernt Zeilen, die außer `Datum:` nur ein gültiges
+Datum in deutscher oder ISO-Schreibweise enthalten. Optionaler Leerraum und
+ein abschließender Satzpunkt sind erlaubt:
+
+```text
+Datum: 01.08.2026
+Datum: 2026-08-01
+```
+
+Dieselben Markdown-Varianten werden auch für `Datum:` akzeptiert, zum Beispiel
+`_Datum: 01.08.2026_`, `**Datum:** 2026-08-01` und
+`Datum: **31.02.2026**`.
+
+Für diese Löschregel wird die Kalendergültigkeit bewusst nicht geprüft. Auch
+formal passende Zeilen wie `Datum: 31.02.2026` oder `Datum: 99.99.9999` werden
+entfernt. Enthält die Zeile weitere Angaben, beispielsweise
+`Datum: 01.08.2026, Seite 4`, bleibt sie bestehen; lediglich ein enthaltenes
+gültiges Datum wird anschließend wie üblich in Langform umgewandelt.
+`Quelle:` gefolgt von einem Datum wird nicht entfernt; für `Quelle:` gilt nur
+die URL-Regel.
+
 Darüber hinaus werden entfernt:
 
 - `http://`-URLs,
@@ -202,7 +256,6 @@ TTS-Engine zu starten.
 ```cmd
 python generate\generate_mp3_with_embedding.py ^
   --input eingabe.md ^
-  --clear_markdown ^
   --print_cleaned_text
 ```
 
@@ -216,7 +269,6 @@ eine Pipe oder ein anderes Programm weitergeleitet werden kann.
 ```cmd
 python generate\generate_mp3_with_embedding.py ^
   --input eingabe.md ^
-  --clear_markdown ^
   --write_cleaned_text bereinigt.md
 ```
 
@@ -230,16 +282,18 @@ Zielpfad wird auf stderr ausgegeben und verunreinigt daher stdout nicht.
 ```cmd
 python generate\generate_mp3_with_embedding.py ^
   --input eingabe.md ^
-  --clear_markdown ^
   --print_cleaned_text ^
   --write_cleaned_text bereinigt.md
 ```
 
 Für beide Ausgabeswitches gilt:
 
-- `--clear_markdown` ist erforderlich.
+- Der effektive Config-/CLI-Wert von `clear_markdown` muss aktiviert sein.
+- Mit dem Standardwert `true` ist kein zusätzlicher Aktivierungsswitch nötig.
 - `--speaker` und `--output` sind nicht erforderlich.
-- Konfiguration, TTS-Modell und CUDA werden nicht geladen.
+- Im Textmodus wird bei fehlendem CLI-Override nur der benötigte
+  `clear_markdown`-Wert aus der Konfigurationsdatei gelesen; die vollständige
+  TTS-Konfiguration, das Modell und CUDA werden nicht geladen.
 - Nach der Ausgabe beendet sich das Programm erfolgreich.
 - Ist der Text nach der Bereinigung leer, endet die CLI mit einem
   verständlichen Eingabefehler.
@@ -275,6 +329,7 @@ Schnitt: 3,590 Sekunden
 Die Tests in `tests/test_generate_mp3_with_embedding.py` prüfen unter anderem:
 
 - beide Schreibweisen aller neuen CLI-Switches,
+- Config-Standard sowie positive und negative CLI-Overrides,
 - Abkürzungen einschließlich geschützter Leerzeichen,
 - Plus-Listenmarker am Zeilenanfang,
 - Trennung von Aufzählungsadverbien und Datumsordinalen,
@@ -283,16 +338,17 @@ Die Tests in `tests/test_generate_mp3_with_embedding.py` prüfen unter anderem:
 - Entfernung alleinstehender Codeblöcke,
 - Erhalt von Inline-Code und unvollständigen Fences,
 - Quellenzeilen, nackte URLs, Autolinks und Markdown-Links,
+- reine `Datum:`-Zeilen mit formal deutschen oder ISO-Datumsangaben,
 - Textausgabe auf stdout,
 - UTF-8-Dateiausgabe einschließlich neuem Elternverzeichnis,
-- Beenden vor `load_config()` und `generate_mp3()`,
-- Fehler bei fehlendem `--clear_markdown`,
+- Beenden vor der vollständigen `load_config()`- und `generate_mp3()`-Pipeline,
+- Fehler bei deaktiviertem effektivem `clear_markdown` im Textausgabemodus,
 - Fehler bei einem vollständig entfernten Eingabetext.
 
 Der zuletzt vollständig ausgeführte Stand war:
 
 ```text
-82 passed, 3 xfailed, 33 subtests passed
+88 passed, 3 xfailed, 32 subtests passed
 Branch Coverage für generate: 97 %
 ```
 
@@ -315,8 +371,9 @@ gezielten Datums- und Listenregressionstests erneut erfolgreich ausgeführt.
   angepasst.
 - Eine entfernte URL kann einen sprachlich unvollständigen Restsatz erzeugen,
   beispielsweise `Weitere Informationen stehen unter.`
-- `Quelle:` wird nur als vollständige, am Zeilenanfang stehende Quellenzeile
-  speziell behandelt.
+- `Quelle:` wird nur als vollständige, am Zeilenanfang stehende URL-Quellenzeile
+  speziell behandelt. `Datum:`-Zeilen mit zusätzlichen Angaben werden nicht
+  vollständig entfernt.
 - Andere URL-Schemata als HTTP, HTTPS und `www.` werden nicht entfernt.
 - Die Vorverarbeitung ist auf die vereinbarten deutschen Regeln zugeschnitten.
 
