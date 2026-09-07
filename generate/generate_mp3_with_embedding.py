@@ -2169,7 +2169,7 @@ class TextPrerollChunkGenerator:
         )
         relaxed_threshold_db = min(
             -40.0,
-            config["silence_threshold_db"] + 5.0,
+            config["silence_threshold_db"] + 10.0,
         )
         if cut is None and relaxed_threshold_db > config["silence_threshold_db"]:
             cut = find_pause_cut(
