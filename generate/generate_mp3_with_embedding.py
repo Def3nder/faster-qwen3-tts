@@ -99,6 +99,9 @@ class TTSConfig(TypedDict):
     crossfade_ms: int
     loudness_match_max_db: float
     save_wav_parts: bool
+    mp3_bitrate_kbps: int
+    mp3_bitrate_mode: str
+    mp3_vbr_quality: int
     parts_directory_policy: PartsDirectoryPolicy
     speak_numbered_lists: bool
     clear_markdown: bool
@@ -217,6 +220,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "crossfade_ms": 0,
     "loudness_match_max_db": 1.5,
     "save_wav_parts": True,
+    "mp3_bitrate_kbps": 64,
+    "mp3_bitrate_mode": "VBR",
+    "mp3_vbr_quality": 5,
     "parts_directory_policy": "delete",
     "speak_numbered_lists": True,
     "clear_markdown": True,
@@ -231,6 +237,7 @@ MODES = {"legacy", "semantic", "semantic_icl"}
 GENERATION_APIS = {"non_streaming", "streaming"}
 SEED_STRATEGIES = {"fixed", "increment"}
 PARTS_DIRECTORY_POLICIES = {"delete", "keep"}
+MP3_BITRATES_KBPS = {8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 192, 224, 256, 320}
 
 COMMON_ABBREVIATIONS = {
     "abb",
@@ -528,6 +535,7 @@ def load_config(
         "generation_api",
         "mode",
         "parts_directory_policy",
+        "mp3_bitrate_mode",
         "ref_audio",
         "ref_text",
         "ref_text_file",
@@ -546,6 +554,8 @@ def load_config(
     for key in (
         "top_k",
         "seed",
+        "mp3_bitrate_kbps",
+        "mp3_vbr_quality",
         "min_new_tokens",
         "warmup_max_new_tokens",
         "max_new_tokens",
@@ -579,6 +589,15 @@ def load_config(
     ):
         _require_type(config, key, bool)
 
+    if config["mp3_bitrate_mode"] not in {"VBR", "CBR"}:
+        raise ValueError("config value 'mp3_bitrate_mode' must be VBR or CBR")
+    if not 0 <= config["mp3_vbr_quality"] <= 9:
+        raise ValueError("config value 'mp3_vbr_quality' must be between 0 and 9")
+    if config["mp3_bitrate_kbps"] not in MP3_BITRATES_KBPS:
+        raise ValueError(
+            "config value 'mp3_bitrate_kbps' must be one of: "
+            + ", ".join(map(str, sorted(MP3_BITRATES_KBPS)))
+        )
     if not config["speaker"].strip():
         raise ValueError("config value 'speaker' must point to a .pt speaker embedding")
     if config["dtype"] not in DTYPES:
@@ -1519,10 +1538,34 @@ def load_voice_prompt(model: Any, config: TTSConfig) -> Any:
     )
 
 
-def write_mp3(path: Path, audio: Any, sample_rate: int) -> None:
-    """Write MPEG Layer III explicitly, independent of extension inference."""
+def write_mp3(
+    path: Path, audio: Any, sample_rate: int, bitrate_kbps: int = 64,
+    *, bitrate_mode: str = "VBR", vbr_quality: int = 5,
+) -> None:
+    """Write MP3 using VBR quality (0 best, 9 smallest), or optional CBR."""
     import soundfile as sf
 
+    if sample_rate >= 32000:
+        minimum, maximum = 32, 320
+        supported = MP3_BITRATES_KBPS - {8, 16, 24, 144}
+    else:
+        minimum, maximum = 8, 160 if sample_rate >= 16000 else 64
+        supported = {rate for rate in MP3_BITRATES_KBPS if rate <= maximum}
+    if bitrate_mode not in {"VBR", "CBR"}:
+        raise ValueError("MP3 bitrate_mode must be VBR or CBR")
+    if type(vbr_quality) is not int or not 0 <= vbr_quality <= 9:
+        raise ValueError("MP3 vbr_quality must be an integer between 0 and 9")
+    if bitrate_mode == "CBR" and (type(bitrate_kbps) is not int or bitrate_kbps not in supported):
+        raise ValueError(
+            f"MP3 bitrate {bitrate_kbps!r} kbit/s is not supported at {sample_rate} Hz; "
+            f"choose one of: {', '.join(map(str, sorted(supported)))}"
+        )
+    # Invert libsndfile's sample-rate-dependent CBR compression mapping:
+    # https://github.com/libsndfile/libsndfile/blob/1.2.2/src/mpeg_l3_encode.c#L198-L209
+    compression_level = (
+        vbr_quality / 10.0 if bitrate_mode == "VBR"
+        else (maximum - bitrate_kbps) / (maximum - minimum)
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         sf.write(
@@ -1531,10 +1574,13 @@ def write_mp3(path: Path, audio: Any, sample_rate: int) -> None:
             sample_rate,
             format="MP3",
             subtype="MPEG_LAYER_III",
+            bitrate_mode="VARIABLE" if bitrate_mode == "VBR" else "CONSTANT",
+            compression_level=compression_level,
         )
     except (RuntimeError, TypeError) as exc:
         raise RuntimeError(
-            "MP3 encoding failed. Install a SoundFile/libsndfile build with MP3 support."
+            "MP3 encoding failed. Install SoundFile >= 0.13 with a libsndfile build "
+            "supporting MP3 and bitrate control."
         ) from exc
 
 
@@ -2462,7 +2508,10 @@ def _finalize_audio(
     )
     state.postprocessing_seconds += time.perf_counter() - post_start
     encode_start = time.perf_counter()
-    write_mp3(output, combined_audio, state.sample_rate)
+    write_mp3(
+        output, combined_audio, state.sample_rate, config["mp3_bitrate_kbps"],
+        bitrate_mode=config["mp3_bitrate_mode"], vbr_quality=config["mp3_vbr_quality"],
+    )
     mp3_encoding_seconds = time.perf_counter() - encode_start
     parts_deleted = False
     if (

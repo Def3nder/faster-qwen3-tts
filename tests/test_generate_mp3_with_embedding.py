@@ -855,6 +855,68 @@ class GenerateMp3WithEmbeddingTests(unittest.TestCase):
             self.assertEqual(info.format, "MP3")
             self.assertEqual(info.subtype, "MPEG_LAYER_III")
 
+    def test_mp3_bitrate_config_default_override_and_validation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            speaker = directory / "voice.pt"
+            speaker.touch()
+            config_path = directory / "config.json"
+            _write_config(config_path, speaker)
+            self.assertEqual(MODULE.load_config(config_path)["mp3_bitrate_kbps"], 64)
+            self.assertEqual(MODULE.load_config(config_path)["mp3_bitrate_mode"], "VBR")
+            self.assertEqual(MODULE.load_config(config_path)["mp3_vbr_quality"], 5)
+            _write_config(config_path, speaker, mp3_bitrate_kbps=128)
+            self.assertEqual(MODULE.load_config(config_path)["mp3_bitrate_kbps"], 128)
+            for invalid in (0, 65, 321, True, "64", 64.5):
+                with self.subTest(invalid=invalid):
+                    _write_config(config_path, speaker, mp3_bitrate_kbps=invalid)
+                    with self.assertRaisesRegex(ValueError, "mp3_bitrate_kbps"):
+                        MODULE.load_config(config_path)
+
+    def test_write_mp3_default_uses_variable_bitrate(self):
+        import shutil
+        import subprocess
+
+        ffprobe = shutil.which("ffprobe")
+        if ffprobe is None:
+            self.skipTest("ffprobe is needed to inspect encoded MP3 packets")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "vbr.mp3"
+            audio = np.concatenate([
+                np.zeros(24000), np.random.default_rng(42).normal(0, 0.1, 24000),
+            ]).astype(np.float32)
+            MODULE.write_mp3(output, audio, 24000)
+            probe = json.loads(subprocess.check_output([
+                ffprobe, "-v", "error", "-show_packets", "-of", "json", str(output),
+            ], text=True))
+            sizes = [int(packet["size"]) for packet in probe["packets"]]
+            # Variation beyond a padding byte demonstrates variable frame bitrates.
+            self.assertGreater(max(sizes) - min(sizes), 1)
+
+    def test_write_mp3_actual_constant_bitrate(self):
+        import shutil
+        import subprocess
+
+        ffprobe = shutil.which("ffprobe")
+        if ffprobe is None:
+            self.skipTest("ffprobe is needed to inspect encoded MP3 packets")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for sample_rate, bitrate in ((24000, 64), (24000, 128), (44100, 64), (12000, 64)):
+                with self.subTest(sample_rate=sample_rate, bitrate=bitrate):
+                    output = Path(temp_dir) / "sample.mp3"
+                    audio = (0.2 * np.sin(2 * np.pi * 440 * np.arange(sample_rate) / sample_rate)).astype(np.float32)
+                    MODULE.write_mp3(output, audio, sample_rate, bitrate, bitrate_mode="CBR")
+                    probe = json.loads(subprocess.check_output([
+                        ffprobe, "-v", "error", "-show_streams", "-show_packets",
+                        "-of", "json", str(output),
+                    ], text=True))
+                    self.assertEqual(int(probe["streams"][0]["bit_rate"]), bitrate * 1000)
+                    self.assertTrue(probe["packets"])
+                    for packet in probe["packets"]:
+                        # CBR frames can differ by one padding byte.
+                        expected_bytes = bitrate * 1000 * float(packet["duration_time"]) / 8
+                        self.assertLess(abs(int(packet["size"]) - expected_bytes), 1.1)
+
     def test_join_audio_chunks_adds_only_missing_boundary_silence(self):
         config = {**MODULE.DEFAULT_CONFIG, "edge_fade_ms": 0}
         first = np.concatenate(

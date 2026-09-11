@@ -31,7 +31,7 @@ dependencies = [
     "transformers>=5.15.1,<6",
     "torch>=2.5.1",
     "numpy",
-    "soundfile",
+    "soundfile>=0.13",
     "huggingface-hub>=1.5.0,<2.0",
 ]
 

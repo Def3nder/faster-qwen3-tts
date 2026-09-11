@@ -3,7 +3,6 @@ sample_*.wav
 *.wav
 !ref_audio.wav
 *.egg-info/
-*.json
 __pycache__/
 *.pyc
 .venv/
