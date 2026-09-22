@@ -1,0 +1,1 @@
+E:\Code\faster-qwen3-tts\.venv\Scripts\python.exe E:\Code\faster-qwen3-tts\generate\qwen_http_service.py --script E:\Code\faster-qwen3-tts\generate\generate_mp3_with_embedding.py --config E:\Code\faster-qwen3-tts\generate\config.json --host 0.0.0.0 --port 8765
