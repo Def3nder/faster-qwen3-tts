@@ -938,7 +938,7 @@ class MainWindow(QMainWindow):
         has_source = bool(self.source_text)
         self.plan_table.setEnabled(has_source)
         self.plan_table.setToolTip(
-            "Der Dateiplan kann während des Batchlaufs angesehen, aber nicht verändert werden."
+            "Der Dateiplan kann während des Batchlaufs angesehen und durchsucht, aber nicht verändert werden."
             if locked
             else ""
         )
@@ -964,8 +964,25 @@ class MainWindow(QMainWindow):
                 )
         self.plan_table.blockSignals(False)
 
-        self.open_button.setEnabled(not locked)
-        self.level_combo.setEnabled(not locked)
+        for widget in (
+            self.open_button,
+            self.output_header_button,
+            self.level_combo,
+            self.voice_picker,
+            self.language_combo,
+            self.min_chunk,
+            self.max_chunk,
+            self.output_picker,
+            self.dictionary_picker,
+            self.replacements_picker,
+            self.footnotes_checkbox,
+            self.hyphenate_checkbox,
+            self.pause_seconds,
+            self.temperature_checkbox,
+            self.temperature_limit,
+            self.gpu_index,
+        ):
+            widget.setEnabled(not locked)
         for widget in (
             self.add_split_button,
             self.undo_split_button,

@@ -55,8 +55,11 @@ fortgesetzt werden. Laufdaten und temporäre Segmenttexte liegen im gewählten
 Ausgabeordner unter `.audiobook_batch`.
 
 Während eines laufenden Batchs bleibt der Dateiplan scrollbar und auswählbar.
-Häkchen, MP3-Titel, Schnittmarken und individuelle Bereiche sind bis zum Ende des
-Laufs gesperrt, damit die vorbereitete Warteschlange nicht verändert wird.
+Gesperrt sind bis zum Ende des Laufs alle inhaltlichen und laufrelevanten
+Einstellungen: Häkchen, MP3-Titel, Textaufbereitung, individuelle Bereiche,
+Schnittmarken, Datei- und Ausgabeauswahl, Stimme und Chunking, Vorleseregeln sowie
+Pause und GPU-Steuerung. Navigation, Vorschau, Protokoll, Theme-Umschaltung und
+**Batch abbrechen** bleiben verfügbar.
 
 ## CSV-Formate
 

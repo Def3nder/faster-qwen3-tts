@@ -44,7 +44,7 @@ der Vorschau und in temporären Batch-Dateien erzeugt.
 | Fortlaufender Dateiname | Nur ausgewählte Abschnitte werden lückenlos nummeriert: `001_Kapitelname.mp3`, `002_….mp3` usw. |
 | MP3-Titel editierbar | Der Titelteil in `Dateiname (editierbar)` kann per Doppelklick geändert werden. Nummer und Endung werden weiterhin automatisch verwaltet; eigene Titel werden dokument- und modusbezogen gespeichert. |
 | Sequenzielle Abarbeitung | Es läuft immer genau ein Generatorprozess. Der nächste startet erst nach erfolgreichem Abschluss und der Kühlphase. |
-| Dateiplan während des Batchs | Die Liste bleibt scrollbar und Zeilen können zur Textansicht ausgewählt werden. Häkchen, MP3-Titel, Schnittmarken und individuelle Bereiche sind währenddessen gesperrt. |
+| Bedienung während des Batchs | Dateiplan, Gliederung, Vorschau und Protokoll bleiben scrollbar beziehungsweise auswählbar. Gesperrt sind sämtliche inhaltlichen und laufrelevanten Änderungen: Quelldatei, Ausgabeordner, Teilung und Bereiche, MP3-Auswahl und -Titel, Textaufbereitung, Stimme und Chunking, Vorleseregeln sowie Pause/GPU-Steuerung. Theme-Umschaltung und Abbruch bleiben verfügbar. |
 | Konfigurierbare Wartezeit | Bereich 0 bis 3600 Sekunden, eine Nachkommastelle; Standard 10,0 Sekunden. |
 | NVIDIA-Zieltemperatur | Optional per `nvidia-smi`; Standard aktiv, GPU 0, Grenzwert strikt **unter** 65 °C. |
 | Temperatur während der Erzeugung | Die Fußzeile fragt die gewählte NVIDIA-GPU ungefähr alle zwei Sekunden ab und zeigt den aktuellen Wert während Generatorlauf und Kühlpause. |
@@ -97,6 +97,9 @@ der Vorschau und in temporären Batch-Dateien erzeugt.
 
 - `tests\test_audiobook_batch_core.py`  
   Fünfzehn Tests der Qt-unabhängigen Kernlogik.
+- `tests\test_audiobook_batch_app.py`
+  Oberflächentest für die Batch-Sperre: Navigation bleibt verfügbar, sämtliche
+  verändernden Bedienelemente bleiben bis zum Batchende gesperrt.
 
 ### Dokumentation
 
