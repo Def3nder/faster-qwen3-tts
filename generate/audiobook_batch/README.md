@@ -12,6 +12,8 @@ Die Quelldatei wird niemals verändert.
 
 Mit **Heller Modus** beziehungsweise **Dunkler Modus** lässt sich die Darstellung
 oben im Fenster umschalten. Die Auswahl bleibt für den nächsten Start gespeichert.
+Fenster und Windows-Taskleiste verwenden das eigene Audio-Werkbank-Icon aus dem
+Unterordner `assets`.
 
 Alternativ in PowerShell:
 

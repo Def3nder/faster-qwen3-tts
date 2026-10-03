@@ -85,6 +85,12 @@ der Vorschau und in temporären Batch-Dateien erzeugt.
 - `generate\audiobook_batch\aussprache.csv`  
   Für beide analysierten Beispielbücher kuratiertes Aussprachewörterbuch mit 144
   Einträgen.
+- `generate\audiobook_batch\assets\audio_werkbank.png`
+  Transparente, hochauflösende Fassung des gewählten Icons mit Kapitelstapel,
+  Play-Symbol und Audiowelle.
+- `generate\audiobook_batch\assets\audio_werkbank.ico`
+  Windows-Icon mit Größen von 16 bis 256 Pixeln. Die Anwendung setzt zusätzlich
+  eine eigene Windows-App-ID, damit nicht das Python-Standardicon verwendet wird.
 
 ### Tests
 
@@ -410,6 +416,10 @@ Kühlphase.
 - Die Mindestpause läuft immer vollständig ab.
 - Während des gesamten Batchlaufs wird die Temperatur ungefähr alle zwei Sekunden
   in der Fußzeile aktualisiert, auch während der Generatorprozess läuft.
+- Während der Kühlphase zeigt der Batch-Status nur die verbleibende Mindestpause
+  in ganzen, aufgerundeten Sekunden beziehungsweise das Warten auf den Grenzwert.
+  Die aktuelle Temperatur steht ausschließlich im separaten GPU-Feld und wird
+  nicht doppelt angezeigt.
 - Bei aktivierter Temperaturprüfung wird ungefähr alle zwei Sekunden abgefragt:
 
 ```text

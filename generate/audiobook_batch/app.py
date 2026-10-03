@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import subprocess
 import sys
@@ -14,7 +15,7 @@ from pathlib import Path
 
 try:
     from PySide6.QtCore import QProcess, QSettings, Qt, QTimer, Signal
-    from PySide6.QtGui import QColor, QFont, QFontDatabase, QTextCharFormat, QTextCursor
+    from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QTextCharFormat, QTextCursor
     from PySide6.QtWidgets import (
         QApplication,
         QCheckBox,
@@ -96,6 +97,8 @@ GENERATOR_SCRIPT = GENERATE_DIR / "generate_mp3_with_embedding.py"
 BASE_CONFIG = GENERATE_DIR / "config.json"
 DEFAULT_INPUT_DIR = REPO_ROOT / "input"
 DEFAULT_VOICE_DIR = REPO_ROOT / "voices"
+APP_ICON_PNG = APP_DIR / "assets" / "audio_werkbank.png"
+APP_ICON_ICO = APP_DIR / "assets" / "audio_werkbank.ico"
 
 
 DARK_STYLE = """
@@ -1431,10 +1434,17 @@ class MainWindow(QMainWindow):
             else:
                 temperature_ready = temperature < self.temperature_limit.value()
 
-        temp_text = f" · GPU {temperature} °C" if temperature is not None else ""
-        self.batch_status.setText(f"Abkühlung · noch {remaining:.1f} s{temp_text}")
+        if not pause_ready:
+            self.batch_status.setText(
+                f"Abkühlung · Mindestpause noch {math.ceil(remaining)} s"
+            )
+        elif not temperature_ready:
+            self.batch_status.setText(
+                f"Abkühlung · warte auf GPU unter {self.temperature_limit.value()} °C"
+            )
         if pause_ready and temperature_ready:
             self.cooldown_timer.stop()
+            temp_text = f" · GPU {temperature} °C" if temperature is not None else ""
             self._append_log(f"Abkühlung beendet{temp_text}.")
             self._start_next_job()
 
@@ -1572,12 +1582,31 @@ def build_argument_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _set_windows_app_user_model_id() -> None:
+    """Give the taskbar entry its own identity instead of Python's default."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "Qwen3TTS.AudioWerkbank"
+        )
+    except (AttributeError, OSError):
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_argument_parser().parse_args(argv)
+    _set_windows_app_user_model_id()
     application = QApplication(sys.argv[:1])
     application.setApplicationName("Audio-Werkbank")
     application.setOrganizationName("Qwen3-TTS")
     application.setStyle("Fusion")
+    icon_path = APP_ICON_ICO if os.name == "nt" else APP_ICON_PNG
+    application_icon = QIcon(str(icon_path))
+    if not application_icon.isNull():
+        application.setWindowIcon(application_icon)
     for font_path in (
         Path(r"C:\Windows\Fonts\segoeui.ttf"),
         Path(r"C:\Windows\Fonts\seguisb.ttf"),
@@ -1588,6 +1617,8 @@ def main(argv: list[str] | None = None) -> int:
             QFontDatabase.addApplicationFont(str(font_path))
     application.setStyleSheet(DARK_STYLE)
     window = MainWindow()
+    if not application_icon.isNull():
+        window.setWindowIcon(application_icon)
     window.show()
     if args.open:
         QTimer.singleShot(0, lambda: window.load_markdown(args.open))
