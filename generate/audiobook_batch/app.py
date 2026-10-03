@@ -383,6 +383,7 @@ class MainWindow(QMainWindow):
         self.cancel_requested = False
         self.completed_jobs = 0
         self.total_jobs = 0
+        self.batch_active = False
         self.cooldown_started = 0.0
         self.gpu_unavailable_reported = False
         self.theme_name = "dark"
@@ -922,7 +923,7 @@ class MainWindow(QMainWindow):
             flags = filename.flags()
             filename.setFlags(
                 flags | Qt.ItemFlag.ItemIsEditable
-                if included[row]
+                if included[row] and not self.batch_active
                 else flags & ~Qt.ItemFlag.ItemIsEditable
             )
         self.plan_table.blockSignals(False)
@@ -931,7 +932,58 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, max(1, count))
         self.progress.setFormat(f"{count} Dateien geplant")
 
+    def _set_batch_edit_lock(self, locked: bool) -> None:
+        """Keep the plan browsable while preventing changes during a batch."""
+        self.batch_active = locked
+        has_source = bool(self.source_text)
+        self.plan_table.setEnabled(has_source)
+        self.plan_table.setToolTip(
+            "Der Dateiplan kann während des Batchlaufs angesehen, aber nicht verändert werden."
+            if locked
+            else ""
+        )
+
+        self.plan_table.blockSignals(True)
+        included = self._included_states()
+        for row in range(self.plan_table.rowCount()):
+            check = self.plan_table.item(row, 0)
+            if check:
+                flags = check.flags()
+                check.setFlags(
+                    flags & ~Qt.ItemFlag.ItemIsUserCheckable
+                    if locked
+                    else flags | Qt.ItemFlag.ItemIsUserCheckable
+                )
+            filename = self.plan_table.item(row, 2)
+            if filename:
+                flags = filename.flags()
+                filename.setFlags(
+                    flags | Qt.ItemFlag.ItemIsEditable
+                    if not locked and row < len(included) and included[row]
+                    else flags & ~Qt.ItemFlag.ItemIsEditable
+                )
+        self.plan_table.blockSignals(False)
+
+        self.open_button.setEnabled(not locked)
+        self.level_combo.setEnabled(not locked)
+        for widget in (
+            self.add_split_button,
+            self.undo_split_button,
+            self.prepare_button,
+            self.reset_preview_button,
+            self.select_all_button,
+            self.select_none_button,
+        ):
+            widget.setEnabled(has_source and not locked)
+        if locked:
+            self.use_selection_button.setEnabled(False)
+            self.reset_region_button.setEnabled(False)
+        else:
+            self._plan_selection_changed()
+
     def _plan_item_changed(self, item: QTableWidgetItem) -> None:
+        if self.batch_active and item.column() in (0, 2):
+            return
         if item.column() == 2:
             row = item.row()
             if not 0 <= row < len(self.segments) or not self._included_states()[row]:
@@ -960,6 +1012,8 @@ class MainWindow(QMainWindow):
         self._update_plan_names()
 
     def _set_all_included(self, value: bool) -> None:
+        if self.batch_active:
+            return
         for row in range(self.plan_table.rowCount()):
             self.plan_table.item(row, 0).setCheckState(
                 Qt.CheckState.Checked if value else Qt.CheckState.Unchecked
@@ -975,8 +1029,8 @@ class MainWindow(QMainWindow):
         segment = self.segments[row]
         overrides = self.region_overrides_by_level.get(int(self.level_combo.currentData()), {})
         is_custom = segment.key in overrides
-        self.use_selection_button.setEnabled(True)
-        self.reset_region_button.setEnabled(is_custom)
+        self.use_selection_button.setEnabled(not self.batch_active)
+        self.reset_region_button.setEnabled(is_custom and not self.batch_active)
         self.region_state.setText("Bereich: individuell gespeichert" if is_custom else "Bereich: Vorschlag")
         cursor = self.original_preview.textCursor()
         # Build the selection backwards.  It covers the same text, but leaves
@@ -1327,7 +1381,7 @@ class MainWindow(QMainWindow):
         self.progress.setValue(self.completed_jobs)
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
-        self.plan_table.setEnabled(False)
+        self._set_batch_edit_lock(True)
         self.gpu_timer.start()
         self._update_live_gpu_temperature()
         self._save_settings()
@@ -1500,7 +1554,7 @@ class MainWindow(QMainWindow):
         self.current_row = None
         self.start_button.setEnabled(bool(self.source_text))
         self.stop_button.setEnabled(False)
-        self.plan_table.setEnabled(bool(self.source_text))
+        self._set_batch_edit_lock(False)
         self.batch_status.setText(message)
         self.progress.setFormat(f"{self.completed_jobs}/{self.total_jobs} · {message}")
         self._append_log(message)

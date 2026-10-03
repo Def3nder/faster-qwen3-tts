@@ -44,6 +44,7 @@ der Vorschau und in temporären Batch-Dateien erzeugt.
 | Fortlaufender Dateiname | Nur ausgewählte Abschnitte werden lückenlos nummeriert: `001_Kapitelname.mp3`, `002_….mp3` usw. |
 | MP3-Titel editierbar | Der Titelteil in `Dateiname (editierbar)` kann per Doppelklick geändert werden. Nummer und Endung werden weiterhin automatisch verwaltet; eigene Titel werden dokument- und modusbezogen gespeichert. |
 | Sequenzielle Abarbeitung | Es läuft immer genau ein Generatorprozess. Der nächste startet erst nach erfolgreichem Abschluss und der Kühlphase. |
+| Dateiplan während des Batchs | Die Liste bleibt scrollbar und Zeilen können zur Textansicht ausgewählt werden. Häkchen, MP3-Titel, Schnittmarken und individuelle Bereiche sind währenddessen gesperrt. |
 | Konfigurierbare Wartezeit | Bereich 0 bis 3600 Sekunden, eine Nachkommastelle; Standard 10,0 Sekunden. |
 | NVIDIA-Zieltemperatur | Optional per `nvidia-smi`; Standard aktiv, GPU 0, Grenzwert strikt **unter** 65 °C. |
 | Temperatur während der Erzeugung | Die Fußzeile fragt die gewählte NVIDIA-GPU ungefähr alle zwei Sekunden ab und zeigt den aktuellen Wert während Generatorlauf und Kühlpause. |
