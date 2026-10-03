@@ -57,11 +57,14 @@ try:
         Segment,
         assign_output_names,
         build_segments,
+        build_toc_anchor_segments,
         create_batch_config,
         load_pronunciation_csv,
         load_project_replacements,
+        normalize_output_title,
         paragraph_start,
         parse_headings,
+        parse_toc_anchors,
         prepare_segments_for_speech,
         read_utf8_text,
         set_segment_range,
@@ -72,11 +75,14 @@ except ImportError:
         Segment,
         assign_output_names,
         build_segments,
+        build_toc_anchor_segments,
         create_batch_config,
         load_pronunciation_csv,
         load_project_replacements,
+        normalize_output_title,
         paragraph_start,
         parse_headings,
+        parse_toc_anchors,
         prepare_segments_for_speech,
         read_utf8_text,
         set_segment_range,
@@ -364,6 +370,7 @@ class MainWindow(QMainWindow):
         self.manual_splits: set[int] = set()
         self.included_by_key: dict[str, bool] = {}
         self.region_overrides_by_level: dict[int, dict[str, tuple[int, int]]] = {}
+        self.output_titles_by_level: dict[int, dict[str, str]] = {}
         self.preview_is_current = False
         self.processed_positions: dict[str, tuple[int, int]] = {}
 
@@ -374,7 +381,6 @@ class MainWindow(QMainWindow):
         self.completed_jobs = 0
         self.total_jobs = 0
         self.cooldown_started = 0.0
-        self.last_gpu_check = 0.0
         self.gpu_unavailable_reported = False
         self.theme_name = "dark"
 
@@ -386,6 +392,9 @@ class MainWindow(QMainWindow):
         self.cooldown_timer = QTimer(self)
         self.cooldown_timer.setInterval(500)
         self.cooldown_timer.timeout.connect(self._cooldown_tick)
+        self.gpu_timer = QTimer(self)
+        self.gpu_timer.setInterval(2000)
+        self.gpu_timer.timeout.connect(self._update_live_gpu_temperature)
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -435,6 +444,8 @@ class MainWindow(QMainWindow):
         footer_layout = QHBoxLayout(footer)
         footer_layout.setContentsMargins(18, 10, 18, 12)
         self.batch_status = QLabel("Bereit", objectName="temperature")
+        self.live_gpu_temperature = QLabel("GPU: —", objectName="temperature")
+        self.live_gpu_temperature.setMinimumWidth(95)
         self.progress = QProgressBar()
         self.progress.setRange(0, 1)
         self.progress.setValue(0)
@@ -442,6 +453,7 @@ class MainWindow(QMainWindow):
         self.stop_button = QPushButton("Batch abbrechen", objectName="danger")
         self.start_button = QPushButton("Batch starten", objectName="accent")
         footer_layout.addWidget(self.batch_status)
+        footer_layout.addWidget(self.live_gpu_temperature)
         footer_layout.addWidget(self.progress, 1)
         footer_layout.addWidget(self.stop_button)
         footer_layout.addWidget(self.start_button)
@@ -465,6 +477,7 @@ class MainWindow(QMainWindow):
         self.level_combo = QComboBox()
         for level in range(1, 7):
             self.level_combo.addItem(f"H{level}", level)
+        self.level_combo.addItem("Sprungmarken aus Inhaltsverzeichnis", 0)
         self.level_combo.setCurrentIndex(2)
         split_row.addWidget(self.level_combo, 1)
         layout.addLayout(split_row)
@@ -537,7 +550,9 @@ class MainWindow(QMainWindow):
         region_controls.addWidget(self.region_state)
         layout.addLayout(region_controls)
         self.plan_table = QTableWidget(0, 5)
-        self.plan_table.setHorizontalHeaderLabels(["✓", "Nr.", "Dateiname", "Zeichen", "Status"])
+        self.plan_table.setHorizontalHeaderLabels(
+            ["✓", "Nr.", "Dateiname (editierbar)", "Zeichen", "Status"]
+        )
         self.plan_table.setAlternatingRowColors(True)
         self.plan_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.plan_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -658,7 +673,7 @@ class MainWindow(QMainWindow):
         self.open_button.clicked.connect(self.open_markdown_dialog)
         self.theme_button.clicked.connect(self._toggle_theme)
         self.output_header_button.clicked.connect(self.output_picker._browse)
-        self.level_combo.currentIndexChanged.connect(self._rebuild_segments)
+        self.level_combo.currentIndexChanged.connect(self._split_mode_changed)
         self.heading_tree.itemSelectionChanged.connect(self._heading_selected)
         self.add_split_button.clicked.connect(self._add_manual_split)
         self.undo_split_button.clicked.connect(self._undo_manual_split)
@@ -756,7 +771,15 @@ class MainWindow(QMainWindow):
         self.source_text = text
         self.manual_splits.clear()
         self.included_by_key.clear()
+        h3_count = sum(heading.level == 3 for heading in parse_headings(text))
+        toc_anchor_count = len(parse_toc_anchors(text))
+        auto_toc_mode = h3_count == 0 and toc_anchor_count >= 2
+        if auto_toc_mode or int(self.level_combo.currentData()) == 0:
+            self.level_combo.blockSignals(True)
+            self.level_combo.setCurrentIndex(self.level_combo.findData(0 if auto_toc_mode else 3))
+            self.level_combo.blockSignals(False)
         self._load_region_overrides()
+        self._load_output_titles()
         self.original_preview.setPlainText(text)
         self.speech_preview.clear()
         self.subtitle.setText(f"{self.source_path.name} · {len(text):,} Zeichen".replace(",", "."))
@@ -767,9 +790,26 @@ class MainWindow(QMainWindow):
         self._set_empty_state()
         self._save_settings()
         self._append_log(f"Geöffnet: {self.source_path}")
+        if auto_toc_mode:
+            self._append_log(
+                f"Automatisch erkannt: {toc_anchor_count} Kapitel-Sprungmarken aus dem Inhaltsverzeichnis."
+            )
+
+    def _split_mode_changed(self) -> None:
+        if not self.source_text:
+            return
+        self._populate_heading_tree()
+        self._rebuild_segments()
 
     def _populate_heading_tree(self) -> None:
         self.heading_tree.clear()
+        if int(self.level_combo.currentData()) == 0:
+            for chapter in parse_toc_anchors(self.source_text):
+                item = QTreeWidgetItem([f"SPRUNG  {chapter.title}"])
+                item.setData(0, Qt.ItemDataRole.UserRole, chapter.start)
+                item.setToolTip(0, f"#{chapter.identifier} · Zeile {chapter.line}")
+                self.heading_tree.addTopLevelItem(item)
+            return
         stack: list[tuple[int, QTreeWidgetItem]] = []
         for heading in parse_headings(self.source_text):
             item = QTreeWidgetItem([f"H{heading.level}  {heading.title}"])
@@ -806,7 +846,11 @@ class MainWindow(QMainWindow):
             if item:
                 self.included_by_key[segment.key] = item.checkState() == Qt.CheckState.Checked
         level = int(self.level_combo.currentData())
-        self.segments = build_segments(self.source_text, level, self.manual_splits)
+        self.segments = (
+            build_toc_anchor_segments(self.source_text, self.manual_splits)
+            if level == 0
+            else build_segments(self.source_text, level, self.manual_splits)
+        )
         overrides = self.region_overrides_by_level.get(level, {})
         invalid_keys: list[str] = []
         for segment in self.segments:
@@ -823,7 +867,7 @@ class MainWindow(QMainWindow):
         if invalid_keys:
             self._save_region_overrides()
         included = [self.included_by_key.get(item.key, item.included_by_default) for item in self.segments]
-        assign_output_names(self.segments, included)
+        assign_output_names(self.segments, included, self.output_titles_by_level.get(level, {}))
         self._populate_plan(included)
         self._mark_preview_stale()
         self.split_info.setText(
@@ -840,10 +884,15 @@ class MainWindow(QMainWindow):
             check.setData(Qt.ItemDataRole.UserRole, segment.key)
             number = QTableWidgetItem(str(row + 1))
             filename = QTableWidgetItem(segment.output_name)
+            filename.setToolTip(
+                "Doppelklick zum Bearbeiten des Titels. Nummer und .mp3-Endung werden automatisch gesetzt."
+            )
             chars = QTableWidgetItem(str(len(segment.source_text)))
             status = QTableWidgetItem(segment.status)
-            for item in (number, filename, chars, status):
+            for item in (number, chars, status):
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            if not selected:
+                filename.setFlags(filename.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.plan_table.setItem(row, 0, check)
             self.plan_table.setItem(row, 1, number)
             self.plan_table.setItem(row, 2, filename)
@@ -860,11 +909,19 @@ class MainWindow(QMainWindow):
 
     def _update_plan_names(self) -> None:
         included = self._included_states()
-        assign_output_names(self.segments, included)
+        level = int(self.level_combo.currentData())
+        assign_output_names(self.segments, included, self.output_titles_by_level.get(level, {}))
         self.plan_table.blockSignals(True)
         for row, segment in enumerate(self.segments):
             self.plan_table.item(row, 1).setText(str(sum(included[: row + 1])) if included[row] else "—")
-            self.plan_table.item(row, 2).setText(segment.output_name)
+            filename = self.plan_table.item(row, 2)
+            filename.setText(segment.output_name)
+            flags = filename.flags()
+            filename.setFlags(
+                flags | Qt.ItemFlag.ItemIsEditable
+                if included[row]
+                else flags & ~Qt.ItemFlag.ItemIsEditable
+            )
         self.plan_table.blockSignals(False)
         count = sum(included)
         self.plan_count.setText(f"{count} Datei{'en' if count != 1 else ''}")
@@ -872,6 +929,27 @@ class MainWindow(QMainWindow):
         self.progress.setFormat(f"{count} Dateien geplant")
 
     def _plan_item_changed(self, item: QTableWidgetItem) -> None:
+        if item.column() == 2:
+            row = item.row()
+            if not 0 <= row < len(self.segments) or not self._included_states()[row]:
+                return
+            level = int(self.level_combo.currentData())
+            titles = self.output_titles_by_level.setdefault(level, {})
+            segment = self.segments[row]
+            raw = item.text().strip()
+            if not raw or raw == "—":
+                titles.pop(segment.key, None)
+            else:
+                title = normalize_output_title(raw, segment.title)
+                if title == normalize_output_title(segment.title):
+                    titles.pop(segment.key, None)
+                else:
+                    titles[segment.key] = title
+            if not titles:
+                self.output_titles_by_level.pop(level, None)
+            self._save_output_titles()
+            self._update_plan_names()
+            return
         if item.column() != 0:
             return
         key = str(item.data(Qt.ItemDataRole.UserRole))
@@ -938,7 +1016,7 @@ class MainWindow(QMainWindow):
                 return
             for raw_level, raw_ranges in raw_levels.items():
                 level = int(raw_level)
-                if not 1 <= level <= 6 or not isinstance(raw_ranges, dict):
+                if not 0 <= level <= 6 or not isinstance(raw_ranges, dict):
                     continue
                 parsed: dict[str, tuple[int, int]] = {}
                 for segment_key, bounds in raw_ranges.items():
@@ -970,6 +1048,63 @@ class MainWindow(QMainWindow):
             "source": str(self.source_path),
             "fingerprint": hashlib.sha256(self.source_text.encode("utf-8")).hexdigest(),
             "levels": levels,
+        }
+        self.settings.setValue(key, json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+
+    def _output_titles_settings_key(self) -> str | None:
+        if not self.source_path:
+            return None
+        source_id = hashlib.sha256(str(self.source_path).casefold().encode("utf-8")).hexdigest()[:24]
+        return f"output_titles/{source_id}"
+
+    def _load_output_titles(self) -> None:
+        self.output_titles_by_level = {}
+        key = self._output_titles_settings_key()
+        if not key or not self.source_text:
+            return
+        raw = self.settings.value(key, "")
+        if not raw:
+            return
+        try:
+            payload = json.loads(str(raw))
+            if not isinstance(payload, dict):
+                return
+            fingerprint = hashlib.sha256(self.source_text.encode("utf-8")).hexdigest()
+            if payload.get("source") != str(self.source_path) or payload.get("fingerprint") != fingerprint:
+                return
+            raw_modes = payload.get("modes", {})
+            if not isinstance(raw_modes, dict):
+                return
+            for raw_mode, raw_titles in raw_modes.items():
+                mode = int(raw_mode)
+                if not 0 <= mode <= 6 or not isinstance(raw_titles, dict):
+                    continue
+                parsed = {
+                    str(segment_key): normalize_output_title(title)
+                    for segment_key, title in raw_titles.items()
+                    if isinstance(segment_key, str) and isinstance(title, str) and title.strip()
+                }
+                if parsed:
+                    self.output_titles_by_level[mode] = parsed
+        except (TypeError, ValueError, json.JSONDecodeError):
+            self.output_titles_by_level = {}
+
+    def _save_output_titles(self) -> None:
+        key = self._output_titles_settings_key()
+        if not key or not self.source_path:
+            return
+        modes = {
+            str(mode): titles
+            for mode, titles in self.output_titles_by_level.items()
+            if titles
+        }
+        if not modes:
+            self.settings.remove(key)
+            return
+        payload = {
+            "source": str(self.source_path),
+            "fingerprint": hashlib.sha256(self.source_text.encode("utf-8")).hexdigest(),
+            "modes": modes,
         }
         self.settings.setValue(key, json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
 
@@ -1184,10 +1319,14 @@ class MainWindow(QMainWindow):
                 self._set_row_status(row, "Wartet")
         self.total_jobs = len(rows)
         self.cancel_requested = False
+        self._last_temperature = None
         self.progress.setRange(0, max(1, self.total_jobs))
         self.progress.setValue(self.completed_jobs)
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
+        self.plan_table.setEnabled(False)
+        self.gpu_timer.start()
+        self._update_live_gpu_temperature()
         self._save_settings()
         self._write_manifest()
         self._append_log(f"Batch gestartet: {self.total_jobs} geplante Dateien · Ausgabe {output}")
@@ -1272,7 +1411,6 @@ class MainWindow(QMainWindow):
             self._finish_batch("Batch abgeschlossen")
             return
         self.cooldown_started = time.monotonic()
-        self.last_gpu_check = 0.0
         self.gpu_unavailable_reported = False
         self.cooldown_timer.start()
         self._cooldown_tick()
@@ -1280,13 +1418,7 @@ class MainWindow(QMainWindow):
     def _cooldown_tick(self) -> None:
         elapsed = time.monotonic() - self.cooldown_started
         remaining = max(0.0, self.pause_seconds.value() - elapsed)
-        temperature: int | None = None
-        if self.temperature_checkbox.isChecked() and time.monotonic() - self.last_gpu_check >= 2.0:
-            self.last_gpu_check = time.monotonic()
-            temperature = self._read_gpu_temperature()
-            self._last_temperature = temperature
-        else:
-            temperature = getattr(self, "_last_temperature", None)
+        temperature = getattr(self, "_last_temperature", None)
 
         pause_ready = remaining <= 0
         temperature_ready = not self.temperature_checkbox.isChecked()
@@ -1305,6 +1437,18 @@ class MainWindow(QMainWindow):
             self.cooldown_timer.stop()
             self._append_log(f"Abkühlung beendet{temp_text}.")
             self._start_next_job()
+
+    def _update_live_gpu_temperature(self) -> None:
+        temperature = self._read_gpu_temperature()
+        self._last_temperature = temperature
+        if temperature is None:
+            self.live_gpu_temperature.setText("GPU: nicht verfügbar")
+            self.live_gpu_temperature.setToolTip(
+                f"Temperatur für NVIDIA-GPU {self.gpu_index.value()} konnte nicht gelesen werden."
+            )
+        else:
+            self.live_gpu_temperature.setText(f"GPU {self.gpu_index.value()}: {temperature} °C")
+            self.live_gpu_temperature.setToolTip("Aktuelle NVIDIA-GPU-Temperatur, etwa alle 2 Sekunden aktualisiert")
 
     def _read_gpu_temperature(self) -> int | None:
         command = [
@@ -1340,11 +1484,13 @@ class MainWindow(QMainWindow):
 
     def _finish_batch(self, message: str) -> None:
         self.cooldown_timer.stop()
+        self.gpu_timer.stop()
         self.process = None
         self.batch_queue.clear()
         self.current_row = None
         self.start_button.setEnabled(bool(self.source_text))
         self.stop_button.setEnabled(False)
+        self.plan_table.setEnabled(bool(self.source_text))
         self.batch_status.setText(message)
         self.progress.setFormat(f"{self.completed_jobs}/{self.total_jobs} · {message}")
         self._append_log(message)
@@ -1371,6 +1517,11 @@ class MainWindow(QMainWindow):
             "source": str(self.source_path) if self.source_path else "",
             "updated": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "split_level": self.level_combo.currentData(),
+            "split_mode": (
+                "toc_anchors"
+                if int(self.level_combo.currentData()) == 0
+                else f"h{self.level_combo.currentData()}"
+            ),
             "manual_splits": sorted(self.manual_splits),
             "files": [
                 {
@@ -1382,6 +1533,8 @@ class MainWindow(QMainWindow):
                     "source_end": segment.end,
                     "custom_range": segment.key
                     in self.region_overrides_by_level.get(int(self.level_combo.currentData()), {}),
+                    "custom_output_title": segment.key
+                    in self.output_titles_by_level.get(int(self.level_combo.currentData()), {}),
                 }
                 for segment, included in zip(self.segments, self._included_states())
             ],

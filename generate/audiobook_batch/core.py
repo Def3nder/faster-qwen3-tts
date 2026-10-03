@@ -14,7 +14,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 
 ATX_HEADING_RE = re.compile(
@@ -22,6 +22,13 @@ ATX_HEADING_RE = re.compile(
 )
 FOOTNOTE_START_RE = re.compile(r"^\[\^(?P<id>[^\]]+)\]:[ \t]*(?P<text>.*)$")
 FOOTNOTE_REFERENCE_RE = re.compile(r"\[\^(?P<id>[^\]]+)\]")
+TOC_LINK_RE = re.compile(
+    r"(?m)^\s*[-*+]\s+\[(?P<title>[^\]]+)\]\(#(?P<id>[^)]+)\)\s*$"
+)
+HTML_ANCHOR_RE = re.compile(
+    r"<a\b[^>]*\b(?:id|name)\s*=\s*(?P<quote>[\"'])(?P<id>.*?)(?P=quote)[^>]*>",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 @dataclass(frozen=True)
@@ -30,6 +37,14 @@ class Heading:
     title: str
     start: int
     end: int
+    line: int
+
+
+@dataclass(frozen=True)
+class TocAnchor:
+    identifier: str
+    title: str
+    start: int
     line: int
 
 
@@ -106,6 +121,36 @@ def parse_headings(text: str) -> list[Heading]:
                 )
         offset += len(line_with_end)
     return headings
+
+
+def parse_toc_anchors(text: str) -> list[TocAnchor]:
+    """Resolve bulleted in-document TOC links to their HTML anchor positions."""
+    positions: dict[str, tuple[int, int]] = {}
+    for match in HTML_ANCHOR_RE.finditer(text):
+        identifier = html.unescape(match.group("id")).strip()
+        if not identifier or identifier in positions:
+            continue
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        line_number = text.count("\n", 0, line_start) + 1
+        positions[identifier] = (line_start, line_number)
+
+    chapters: list[TocAnchor] = []
+    seen: set[str] = set()
+    for match in TOC_LINK_RE.finditer(text):
+        identifier = html.unescape(match.group("id")).strip()
+        if identifier in seen or identifier not in positions:
+            continue
+        seen.add(identifier)
+        start, line = positions[identifier]
+        chapters.append(
+            TocAnchor(
+                identifier=identifier,
+                title=_without_inline_markdown(match.group("title")) or identifier,
+                start=start,
+                line=line,
+            )
+        )
+    return sorted(chapters, key=lambda item: item.start)
 
 
 def _body_without_first_heading(text: str) -> str:
@@ -211,6 +256,12 @@ def build_segments(
                     )
                 )
 
+    return _apply_manual_splits(base, text, manual_splits)
+
+
+def _apply_manual_splits(
+    base: Sequence[Segment], text: str, manual_splits: Iterable[int]
+) -> list[Segment]:
     split_offsets = sorted({int(value) for value in manual_splits if 0 < int(value) < len(text)})
     result: list[Segment] = []
     for segment in base:
@@ -235,6 +286,55 @@ def build_segments(
                 )
             )
     return result
+
+
+def build_toc_anchor_segments(
+    text: str,
+    manual_splits: Iterable[int] = (),
+) -> list[Segment]:
+    """Split a document using TOC links and their matching HTML anchors."""
+    chapters = parse_toc_anchors(text)
+    base: list[Segment] = []
+    if not chapters:
+        if text.strip():
+            base.append(
+                Segment(
+                    key=_segment_key("intro", 0),
+                    title="Einleitung",
+                    start=0,
+                    end=len(text),
+                    source_text=text,
+                    kind="intro",
+                    included_by_default=False,
+                )
+            )
+        return _apply_manual_splits(base, text, manual_splits)
+
+    if text[: chapters[0].start].strip():
+        base.append(
+            Segment(
+                key=_segment_key("intro", 0),
+                title="Einleitung",
+                start=0,
+                end=chapters[0].start,
+                source_text=text[: chapters[0].start],
+                kind="intro",
+                included_by_default=False,
+            )
+        )
+    for index, chapter in enumerate(chapters):
+        end = chapters[index + 1].start if index + 1 < len(chapters) else len(text)
+        base.append(
+            Segment(
+                key=_segment_key("anchor", chapter.start),
+                title=chapter.title,
+                start=chapter.start,
+                end=end,
+                source_text=text[chapter.start:end],
+                kind="chapter",
+            )
+        )
+    return _apply_manual_splits(base, text, manual_splits)
 
 
 def paragraph_start(text: str, position: int) -> int:
@@ -264,16 +364,31 @@ def safe_filename(title: str, fallback: str = "Abschnitt") -> str:
     return (title[:120].rstrip("_ ") or fallback)
 
 
-def assign_output_names(segments: Sequence[Segment], included: Sequence[bool]) -> None:
+def normalize_output_title(value: str, fallback: str = "Abschnitt") -> str:
+    """Extract and sanitize the editable title part of an MP3 filename."""
+    value = value.strip()
+    if re.search(r"(?i)\.mp3$", value):
+        value = re.sub(r"(?i)\.mp3$", "", value)
+        value = re.sub(r"^\d{3,}_", "", value)
+    return safe_filename(value, fallback)
+
+
+def assign_output_names(
+    segments: Sequence[Segment],
+    included: Sequence[bool],
+    title_overrides: Mapping[str, str] | None = None,
+) -> None:
     count = sum(bool(value) for value in included)
     width = max(3, len(str(max(1, count))))
     number = 0
+    overrides = title_overrides or {}
     for segment, is_included in zip(segments, included):
         if not is_included:
             segment.output_name = "—"
             continue
         number += 1
-        segment.output_name = f"{number:0{width}d}_{safe_filename(segment.title)}.mp3"
+        title = overrides.get(segment.key, segment.title)
+        segment.output_name = f"{number:0{width}d}_{safe_filename(title)}.mp3"
 
 
 def extract_footnotes(text: str) -> tuple[str, dict[str, str]]:

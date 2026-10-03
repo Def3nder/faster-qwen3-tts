@@ -23,6 +23,9 @@ uv pip install --python .\.venv\Scripts\python.exe -r .\generate\audiobook_batch
 ## Arbeitsablauf
 
 1. Überschriften-Level auswählen, zum Beispiel `H3`.
+   Bei Büchern mit verlinkten Kapitelmarken kann stattdessen
+   **Sprungmarken aus Inhaltsverzeichnis** verwendet werden. Fehlen H3-Kapitel und sind passende
+   Sprungmarken vorhanden, wählt die Anwendung diesen Modus automatisch.
 2. Optional im Originaltext den Cursor in einen Absatz setzen und **Schnitt vor Absatz** wählen.
 3. Zum Anpassen eines vorgeschlagenen Bereichs die Dateizeile wählen, im Original den gewünschten
    Text markieren und **Markierung übernehmen** anklicken. **Vorschlag wiederherstellen** macht die
@@ -31,6 +34,8 @@ uv pip install --python .\.venv\Scripts\python.exe -r .\generate\audiobook_batch
 5. Optional ein Aussprachewörterbuch und projektspezifische Ersetzungen auswählen.
 6. **Vorlesetext aufbereiten** wählen und Original/Vorlesetext vergleichen.
 7. Im Dateiplan Einleitung oder Kapitel an- und abwählen.
+   Der Titelteil eines MP3-Dateinamens lässt sich per Doppelklick auf
+   **Dateiname (editierbar)** ändern. Nummer und `.mp3`-Endung bleiben automatisch korrekt.
 8. **Batch starten**.
 
 Individuelle Bereiche werden für die Kombination aus Quelldatei, Dokumentinhalt und
@@ -71,3 +76,5 @@ Nach jeder erzeugten Datei wartet die Anwendung mindestens die konfigurierte Zei
 Ist die Temperatursteuerung aktiv, beginnt die nächste Datei zusätzlich erst, wenn
 `nvidia-smi` für die gewählte GPU einen Wert **unter** dem Grenzwert meldet. Es gibt
 keine maximale Wartezeit. Ist `nvidia-smi` nicht verfügbar, gilt nur die Mindestpause.
+Während des gesamten Batchlaufs zeigt die Fußzeile die aktuelle GPU-Temperatur an und
+aktualisiert sie ungefähr alle zwei Sekunden – auch während eine MP3 erzeugt wird.

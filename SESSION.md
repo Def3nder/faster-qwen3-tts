@@ -35,15 +35,18 @@ der Vorschau und in temporären Batch-Dateien erzeugt.
 | Geöffnete Datei anzeigen | Das Original wird vollständig in einer schreibgeschützten Vorschau angezeigt. |
 | Überschriften einklappen | Alle erkannten H1–H6-Überschriften werden hierarchisch in einem Baum dargestellt. |
 | Eine Datei pro Überschriften-Level | H1 bis H6 sind auswählbar; H3 ist der Standard. |
+| Kapitel ohne Markdown-Überschriften | Der Modus `Sprungmarken aus Inhaltsverzeichnis` liest verlinkte TOC-Ziele und teilt am jeweils passenden HTML-Anker. Bei fehlenden H3-Kapiteln wird er automatisch gewählt, wenn mindestens zwei gültige Ziele erkannt werden. |
 | Einleitung separat auswählbar | Text vor der ersten Zielüberschrift wird als `Einleitung` angeboten und ist standardmäßig abgewählt. |
 | Feiner schneiden | Der Cursor kann in einen Absatz gesetzt werden; `Schnitt vor Absatz` fügt dort eine Schnittmarke ein. |
 | Keine zusätzliche Textbearbeitung | Original- und Vorlesevorschau sind absichtlich schreibgeschützt. Inhalte werden nicht editiert; erlaubt sind Schnittmarken, Dateiauswahl und das Übernehmen einer markierten Textspanne als Dateibereich. |
 | Vor dem Start genau sehen, was wohin kommt | Der Dateiplan zeigt Auswahl, laufende Nummer, endgültigen Dateinamen, Zeichenzahl und Status. Die Auswahl einer Zeile markiert den zugehörigen Text. |
 | Vorgeschlagene Bereiche anpassen und merken | Für die aktuell gewählte Dateizeile kann eine freie Textmarkierung aus der Originalansicht als individueller Bereich gespeichert werden. Sie wird beim erneuten Anklicken und nach einem Programmneustart wiederhergestellt, solange Pfad und Dokumentinhalt unverändert sind. |
 | Fortlaufender Dateiname | Nur ausgewählte Abschnitte werden lückenlos nummeriert: `001_Kapitelname.mp3`, `002_….mp3` usw. |
+| MP3-Titel editierbar | Der Titelteil in `Dateiname (editierbar)` kann per Doppelklick geändert werden. Nummer und Endung werden weiterhin automatisch verwaltet; eigene Titel werden dokument- und modusbezogen gespeichert. |
 | Sequenzielle Abarbeitung | Es läuft immer genau ein Generatorprozess. Der nächste startet erst nach erfolgreichem Abschluss und der Kühlphase. |
 | Konfigurierbare Wartezeit | Bereich 0 bis 3600 Sekunden, eine Nachkommastelle; Standard 10,0 Sekunden. |
 | NVIDIA-Zieltemperatur | Optional per `nvidia-smi`; Standard aktiv, GPU 0, Grenzwert strikt **unter** 65 °C. |
+| Temperatur während der Erzeugung | Die Fußzeile fragt die gewählte NVIDIA-GPU ungefähr alle zwei Sekunden ab und zeigt den aktuellen Wert während Generatorlauf und Kühlpause. |
 | Keine maximale Wartezeit | Absichtlich umgesetzt. Solange die Temperatur nicht unter dem Grenzwert liegt, wartet die Anwendung unbegrenzt. |
 | Stimme konfigurierbar | Auswahl eines vorhandenen `.pt`-Sprecher-Embeddings. |
 | Sprache konfigurierbar | Vorbelegt mit `German`; angeboten werden außerdem `English`, `French`, `Spanish`, `Italian` und `Auto`; das Feld ist frei editierbar. |
@@ -80,13 +83,13 @@ der Vorschau und in temporären Batch-Dateien erzeugt.
 - `generate\audiobook_batch\project_replacements.example.csv`  
   Beispiel für projektspezifische Ersetzungen.
 - `generate\audiobook_batch\aussprache.csv`  
-  Für die Beispiel-Markdown-Datei kuratiertes Aussprachewörterbuch mit 83
+  Für beide analysierten Beispielbücher kuratiertes Aussprachewörterbuch mit 144
   Einträgen.
 
 ### Tests
 
 - `tests\test_audiobook_batch_core.py`  
-  Dreizehn Tests der Qt-unabhängigen Kernlogik.
+  Fünfzehn Tests der Qt-unabhängigen Kernlogik.
 
 ### Dokumentation
 
@@ -105,6 +108,9 @@ Git eingecheckt (`git status` zeigt sie als untracked).
 4. Optional den Cursor in einen Absatz setzen und `Schnitt vor Absatz` wählen.
 5. Im Dateiplan Einleitung, Zwischentexte oder Kapitel an- beziehungsweise
    abwählen.
+   Der Titelteil eines Dateinamens kann in der Spalte `Dateiname (editierbar)` per
+   Doppelklick geändert werden. Leeren des Feldes stellt den automatisch aus dem
+   Kapiteltitel erzeugten Namen wieder her.
 6. Falls der vorgeschlagene Bereich einer Datei nicht passt: Dateizeile wählen,
    im Tab `Original` den gewünschten Text exakt markieren und
    `Markierung übernehmen` anklicken. `Vorschlag wiederherstellen` entfernt die
@@ -136,6 +142,17 @@ für `Original` als auch für den bereits erzeugten `Vorlesetext`.
 - Setext-Überschriften mit `===` oder `---` werden bei der Teilung nicht als
   Überschrift verwendet.
 
+Zusätzlich gibt es die inhaltsverzeichnisbasierte Erkennung:
+
+- Verwendet werden Listeneinträge wie `[Kapitelname](#a-4)`.
+- Im Dokument muss ein passender HTML-Anker wie `<a id="a-4"></a>` oder
+  `<a name="a-4"></a>` vorhanden sein.
+- Nur Ziele, die sowohl im Inhaltsverzeichnis als auch im Dokument vorkommen,
+  werden übernommen.
+- Doppelte Ziele werden nur einmal verwendet.
+- Die Kapitelreihenfolge folgt der Position der Zielanker im Dokument.
+- Der sichtbare Linktext aus dem Inhaltsverzeichnis wird zum Kapiteltitel.
+
 ### Segmentregeln
 
 - Text vor der ersten Überschrift des gewählten Levels wird `Einleitung`.
@@ -148,6 +165,8 @@ für `Original` als auch für den bereits erzeugten `Vorlesetext`.
 - Gibt es keine Überschrift des gewählten Levels, wird das gesamte Dokument als
   abgewählte Einleitung angeboten. Der Benutzer muss dann bewusst auswählen oder
   ein anderes Level wählen.
+- Im Sprungmarken-Modus wird Text vor der ersten verlinkten Marke ebenfalls als
+  separat abgewählte Einleitung behandelt.
 - Manuelle Schnitte rasten am Anfang des aktuellen Absatzes ein.
 - Ein geschnittenes Kapitel wird als ursprünglicher Titel und anschließend als
   `Titel – Teil 2`, `Titel – Teil 3` usw. dargestellt.
@@ -169,6 +188,14 @@ für `Original` als auch für den bereits erzeugten `Vorlesetext`.
 - Leerzeichen und Punkte werden zu Unterstrichen normalisiert.
 - Der bereinigte Titel wird auf 120 Zeichen begrenzt.
 - Nicht ausgewählte Zeilen zeigen als Dateiname `—`.
+- Die Dateinamensspalte ist für ausgewählte Zeilen editierbar.
+- Beim Speichern eines eigenen Namens werden eine eingegebene führende Nummer und
+  die `.mp3`-Endung entfernt; anschließend setzt die Anwendung die jeweils
+  aktuelle fortlaufende Nummer und Endung wieder ein.
+- Eigene Titel bleiben erhalten, wenn die Segmentauswahl und damit die laufende
+  Nummer geändert wird.
+- Leeren des Feldes entfernt die Anpassung und stellt den automatischen Titel
+  wieder her.
 
 ## 6. Erkenntnisse zur Beispieldatei
 
@@ -188,6 +215,23 @@ Aktuell gemessene Eigenschaften:
 
 Damit entspricht H3 der gewünschten Regel „eine Audiodatei je Level-3-
 Überschrift“.
+
+Zweite analysierte Datei:
+`input\Stefan Hiene - Aufwachmedizin - Dein radikaler Weg zur Selbstannahme.md`
+
+- 198.966 Zeichen
+- 3.793 Zeilen
+- keine H3-Kapitelstruktur
+- 57 verlinkte Inhaltsverzeichnis-Ziele
+- 58 erzeugte Segmente:
+  - 1 standardmäßig abgewählte Einleitung mit Titel, Impressum, Widmung und
+    Inhaltsverzeichnis
+  - 57 standardmäßig ausgewählte Dateien
+- Die 57 Dateien umfassen Dosierungsanleitung, Packungsbeilage, Vorwort, 52
+  nummerierte Kapitel, `Über die Aufwachmedizin` und `Über den Autor`.
+- Alle 57 Linkziele besitzen einen passenden Anker; es fehlt kein Ziel.
+- Die Anwendung wählt für diese Datei automatisch
+  `Sprungmarken aus Inhaltsverzeichnis`.
 
 ## 7. Aufbereitung des Vorlesetextes
 
@@ -262,9 +306,10 @@ Regeln:
 - Die Ersetzung ist groß-/kleinschreibungssensitiv und vermeidet Treffer mitten
   in normalen Wörtern.
 
-Die neu erstellte `aussprache.csv` enthält 83 eindeutige Einträge. Alle
-Schreibweisen kommen in der Beispiel-Markdown-Datei vor; es gibt keine Dubletten
-und keinen leeren Zielwert. Abgedeckt sind unter anderem:
+Die erweiterte `aussprache.csv` enthält 144 eindeutige Einträge. Alle
+Schreibweisen kommen in mindestens einer der beiden analysierten Markdown-Dateien
+vor; es gibt keine Dubletten und keinen leeren oder wirkungslosen Zielwert.
+Abgedeckt sind unter anderem:
 
 - Abkürzungen wie `GANPF`, `AFE`, `MDMA`, `INXS`, `ISBN` und `ZDF`
 - englische Begriffe und Marken wie `Dirty Talk`, `Slow Sex`, `WhatsApp`,
@@ -272,11 +317,14 @@ und keinen leeren Zielwert. Abgedeckt sind unter anderem:
 - medizinische beziehungsweise fremdsprachige Begriffe wie `Pedicatio`,
   `Sildenafil`, `Cantharidin`, `Yohimbin` und `Yoni`
 - Namen und Buchtitel aus Text und Literaturverzeichnis
+- die zweite Datei betreffende Verlagsnamen, sichtbare Web-/E-Mail-Adressen,
+  englische Liedzeilen und Wendungen sowie fremdsprachige Personen- und Ortsnamen
 
 Nicht sicher belegte Namensaussprache wurde in `Hinweis` als `Vorschlag`
 markiert. Diese Einträge benötigen eine Hörprobe; besonders zu prüfen sind
 `Michael Sztenc`, `Femtasy`, `Jesper Bay-Hansen`, `Katherine Woodward Thomas`,
-`Love Base Media`, `It Started With a Kiss` und der englische AFE-Langtext.
+`Love Base Media`, `It Started With a Kiss`, `Loukotka`, `Lars Muhl`,
+`Immaculee Ilibagiza` und der englische AFE-Langtext.
 
 ### Projektspezifische Ersetzungen
 
@@ -331,7 +379,8 @@ Im Ausgabeordner entsteht `.audiobook_batch` mit:
 - `segment_XXXX.md` – exakt vorbereiteter Text je ausgewähltem Segment
 - `batch_plan.json` – Quelle, Aktualisierungszeit, Split-Level, manuelle Schnitte,
   Titel, Ausgabedateien, Auswahl, Status sowie Start, Ende und Kennzeichnung eines
-  individuellen Bereichs
+  individuellen Bereichs; der Teilungsmodus und individuell gesetzte
+  Dateinamentitel werden ebenfalls gekennzeichnet
 
 ### Fortsetzen und Überspringen
 
@@ -357,6 +406,8 @@ Nach jeder erfolgreich erzeugten Datei, außer nach der letzten, beginnt die
 Kühlphase.
 
 - Die Mindestpause läuft immer vollständig ab.
+- Während des gesamten Batchlaufs wird die Temperatur ungefähr alle zwei Sekunden
+  in der Fußzeile aktualisiert, auch während der Generatorprozess läuft.
 - Bei aktivierter Temperaturprüfung wird ungefähr alle zwei Sekunden abgefragt:
 
 ```text
@@ -388,6 +439,7 @@ nvidia-smi --id=<GPU> --query-gpu=temperature.gpu --format=csv,noheader,nounits
 - GPU-Index
 - zuletzt geöffnete Quelle
 - individuelle Textbereiche, getrennt nach Quelldatei und Überschriften-Level
+- individuelle MP3-Titel, getrennt nach Quelldatei und Teilungsmodus
 - gewählter Hell-/Dunkel-Modus
 
 Die zuletzt geöffnete Quelle wird derzeit nur gespeichert, aber nicht automatisch
@@ -453,7 +505,7 @@ Am 3. Oktober 2026 erneut ausgeführt:
 
 ```text
 .venv\Scripts\python.exe -m pytest tests/test_audiobook_batch_core.py -q
-13 passed in 0.06s
+15 passed in 0.07s
 ```
 
 Die Warnung beim Lauf betraf ausschließlich fehlende Berechtigung zum Schreiben
@@ -466,6 +518,8 @@ Abgedeckt sind:
 - Übernahme einer frei markierten Textspanne als Segmentbereich
 - Ablehnung einer leeren individuellen Markierung
 - Entfernung von HTML-Ankern, Kommentaren, Format-Tags und Markdown-Bildern
+- Kapitelaufteilung über Inhaltsverzeichnislinks und HTML-Sprungmarken
+- editierter MP3-Titel mit weiterhin automatischer Nummer und Endung
 - Fußnote nach erstem Absatzverweis
 - deaktivierte Fußnoten
 - eigenständige Fußnoten je Ausgabedatei
@@ -477,18 +531,18 @@ Abgedeckt sind:
 
 Ein früherer vollständiger Repository-Testlauf nach Erstellung der Anwendung
 ergab 100 bestandene Tests, 3 erwartete XFAIL-Fälle und 42 Subtests. Nach späteren
-Nach Änderungen an der Audio-Werkbank wurde zuletzt der gezielte Satz der 13 Core-Tests
+Nach Änderungen an der Audio-Werkbank wurde zuletzt der gezielte Satz der 15 Core-Tests
 erneut ausgeführt. Ein danach angestoßener vollständiger Lauf wurde in einem
 bestehenden, ausgabefreien Langzeit-Modelltest abgebrochen; bis dahin war kein
 Fehler ausgegeben worden.
 
 Die Aussprache-CSV wurde zusätzlich validiert:
 
-- 83 geladene Einträge
+- 144 geladene Einträge
 - alle vier erwarteten Spalten vorhanden
 - keine doppelten Schreibweisen
-- kein leerer Aussprachewert
-- jede Schreibweise kommt in der Beispiel-Markdown-Datei vor
+- kein leerer oder wirkungsloser Aussprachewert
+- jede Schreibweise kommt in mindestens einer der beiden Beispiel-Markdown-Dateien vor
 
 Noch nicht als End-to-End-Test ausgeführt wurde ein kompletter 74-Dateien-
 Audiobatch mit realem Modell und GPU.
@@ -528,8 +582,10 @@ sind keine Bildplatzhalter.
 
 - Die Oberfläche ist ein lokales Desktop-Werkzeug, kein Webdienst.
 - Es gibt keine Textbearbeitung in der Oberfläche; das ist eine bewusste Vorgabe.
-- Dateinamen werden automatisch erzeugt und sind derzeit nicht direkt editierbar.
-- Überschriften werden nur anhand von ATX-Markern geteilt.
+- Die automatisch vorgeschlagenen MP3-Dateinamen sind in der Segmentliste direkt
+  editierbar.
+- Neben ATX-Überschriften können Kapitel über die Sprungmarken eines verlinkten
+  Inhaltsverzeichnisses erkannt werden.
 - Projektregeln und Ausspracheeinträge sind absichtlich exakt und
   groß-/kleinschreibungssensitiv.
 - Ein vorhandener Ausgabedateiname gilt ohne Inhaltsprüfung als abgeschlossen.

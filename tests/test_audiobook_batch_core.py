@@ -7,12 +7,15 @@ from generate.audiobook_batch.core import (
     SpeechOptions,
     assign_output_names,
     build_segments,
+    build_toc_anchor_segments,
     create_batch_config,
     extract_footnotes,
     load_pronunciation_csv,
     load_project_replacements,
     numbers_to_words,
+    normalize_output_title,
     paragraph_start,
+    parse_toc_anchors,
     prepare_segments_for_speech,
     set_segment_range,
 )
@@ -39,6 +42,34 @@ def test_manual_split_snaps_to_paragraph_and_creates_parts():
 
     assert [segment.title for segment in segments] == ["Kapitel", "Kapitel – Teil 2"]
     assert segments[1].source_text.startswith("Zweiter")
+
+
+def test_toc_anchor_links_create_chapters_without_markdown_headings():
+    text = (
+        "# Inhalt\n\n"
+        "- [Erstes Kapitel](#a-1)\n"
+        "- [Zweites Kapitel](#a-2)\n\n"
+        "Vorspann.\n\n"
+        '<a id="a-1"></a>\n\nErster Text.\n\n'
+        '<a id="a-2"></a>\n\nZweiter Text.\n'
+    )
+
+    anchors = parse_toc_anchors(text)
+    segments = build_toc_anchor_segments(text)
+
+    assert [(anchor.identifier, anchor.title) for anchor in anchors] == [
+        ("a-1", "Erstes Kapitel"),
+        ("a-2", "Zweites Kapitel"),
+    ]
+    assert [(segment.kind, segment.title) for segment in segments] == [
+        ("intro", "Einleitung"),
+        ("chapter", "Erstes Kapitel"),
+        ("chapter", "Zweites Kapitel"),
+    ]
+    assert not segments[0].included_by_default
+    assert "Erster Text" in segments[1].source_text
+    assert "Zweiter Text" not in segments[1].source_text
+    assert "Zweiter Text" in segments[2].source_text
 
 
 def test_user_selected_range_replaces_suggested_segment_text():
@@ -152,6 +183,19 @@ def test_output_names_only_number_selected_segments():
         "001_Äpfel_&_Öl.mp3",
         "002_Ende.mp3",
     ]
+
+
+def test_editable_output_title_keeps_automatic_number_and_extension():
+    text = "### Eins\n\nText\n\n### Zwei\n\nText"
+    segments = build_segments(text, 3)
+    custom_title = normalize_output_title("009_Mein neuer / Titel.mp3")
+
+    assign_output_names(segments, [True, True], {segments[1].key: custom_title})
+
+    assert custom_title == "Mein_neuer_Titel"
+    assert normalize_output_title("1. Kapitel") == "1_Kapitel"
+    assert segments[0].output_name == "001_Eins.mp3"
+    assert segments[1].output_name == "002_Mein_neuer_Titel.mp3"
 
 
 def test_number_rules_distinguish_year_from_quantity():
