@@ -186,6 +186,8 @@ Zusätzlich gibt es die inhaltsverzeichnisbasierte Erkennung:
 - Für Windows unzulässige Zeichen werden entfernt beziehungsweise durch
   Unterstriche ersetzt.
 - Leerzeichen und Punkte werden zu Unterstrichen normalisiert.
+- Deutsche Umlaute werden ausgeschrieben (`Ä/Ö/Ü` → `Ae/Oe/Ue`,
+  `ä/ö/ü` → `ae/oe/ue`); `ß` wird zu `ss` und `ẞ` zu `SS`.
 - Der bereinigte Titel wird auf 120 Zeichen begrenzt.
 - Nicht ausgewählte Zeilen zeigen als Dateiname `—`.
 - Die Dateinamensspalte ist für ausgewählte Zeilen editierbar.

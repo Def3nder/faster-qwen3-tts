@@ -180,7 +180,7 @@ def test_output_names_only_number_selected_segments():
 
     assert [segment.output_name for segment in segments] == [
         "—",
-        "001_Äpfel_&_Öl.mp3",
+        "001_Aepfel_&_Oel.mp3",
         "002_Ende.mp3",
     ]
 
@@ -194,6 +194,7 @@ def test_editable_output_title_keeps_automatic_number_and_extension():
 
     assert custom_title == "Mein_neuer_Titel"
     assert normalize_output_title("1. Kapitel") == "1_Kapitel"
+    assert normalize_output_title("Über Größe & süße Öle") == "Ueber_Groesse_&_suesse_Oele"
     assert segments[0].output_name == "001_Eins.mp3"
     assert segments[1].output_name == "002_Mein_neuer_Titel.mp3"
 

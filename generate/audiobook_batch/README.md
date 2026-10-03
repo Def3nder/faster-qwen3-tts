@@ -36,6 +36,8 @@ uv pip install --python .\.venv\Scripts\python.exe -r .\generate\audiobook_batch
 7. Im Dateiplan Einleitung oder Kapitel an- und abwählen.
    Der Titelteil eines MP3-Dateinamens lässt sich per Doppelklick auf
    **Dateiname (editierbar)** ändern. Nummer und `.mp3`-Endung bleiben automatisch korrekt.
+   Deutsche Umlaute und `ß` werden dabei dateisystemfreundlich als `Ae`, `Oe`,
+   `Ue`, `ae`, `oe`, `ue` beziehungsweise `ss` ausgeschrieben.
 8. **Batch starten**.
 
 Individuelle Bereiche werden für die Kombination aus Quelldatei, Dokumentinhalt und

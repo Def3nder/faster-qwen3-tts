@@ -359,6 +359,20 @@ def set_segment_range(segment: Segment, document: str, start: int, end: int) -> 
 
 def safe_filename(title: str, fallback: str = "Abschnitt") -> str:
     title = unicodedata.normalize("NFC", title)
+    title = title.translate(
+        str.maketrans(
+            {
+                "Ä": "Ae",
+                "Ö": "Oe",
+                "Ü": "Ue",
+                "ä": "ae",
+                "ö": "oe",
+                "ü": "ue",
+                "ẞ": "SS",
+                "ß": "ss",
+            }
+        )
+    )
     title = re.sub(r'[<>:"/\\|?*\x00-\x1f]', " ", title)
     title = re.sub(r"[\s.]+", "_", title).strip("_ ")
     return (title[:120].rstrip("_ ") or fallback)
