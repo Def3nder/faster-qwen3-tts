@@ -16,11 +16,13 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-PROTOCOL = "webarchiv-qwen-v4"
+PROTOCOL = "webarchiv-qwen-v5"
 MAX_TEXT = 1_000_000
 LEASE = 90
 RETENTION = 3600
+PROGRESS_HISTORY = 100
 UUID_PATTERN = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+CHUNK_PROGRESS = re.compile(r"^Chunk \d+/\d+: \d+/\d+ characters \(boundary: [^)]+\)$")
 
 
 class Jobs:
@@ -77,6 +79,7 @@ class Jobs:
                 job = {"id": job_id, "status": "running", "digest": digest,
                        "session": session_id, "index": chunk_index,
                        "process": process, "directory": directory, "output": output,
+                       "progress": [], "progress_sequence": 0,
                        "touched": time.monotonic()}
                 self.jobs[job_id] = job
                 # Dateipfade entstehen ausschließlich hier; HTTP-Clients liefern nur Text/IDs.
@@ -99,6 +102,19 @@ class Jobs:
                         continue
                     if event.get("type") == "ready" and not session["ready"]:
                         session["ready"] = True
+                    elif event.get("type") == "progress":
+                        job = self.jobs[event.get("id")]
+                        message = event.get("message")
+                        if (job["session"] != session["id"] or job["status"] != "running"
+                                or not session["ready"] or not isinstance(message, str)
+                                or not CHUNK_PROGRESS.fullmatch(message)):
+                            raise ValueError("Ungültiger Worker-Fortschritt")
+                        job["progress_sequence"] += 1
+                        job["progress"].append({
+                            "sequence": job["progress_sequence"], "message": message,
+                        })
+                        del job["progress"][:-PROGRESS_HISTORY]
+                        job["touched"] = time.monotonic()
                     elif event.get("type") == "result":
                         job = self.jobs[event["id"]]
                         if job["session"] != session["id"] or job["status"] != "running" or not session["ready"]:
@@ -167,7 +183,8 @@ class Jobs:
             session = self.sessions.get(job.get("session"))
             if session:
                 session["touched"] = time.monotonic()
-            return {"id": job_id, "status": job["status"]}
+            return {"id": job_id, "status": job["status"],
+                    "progress": list(job.get("progress", []))}
 
     def cancel(self, job_id):
         with self.lock:
@@ -238,7 +255,8 @@ def handler(jobs, token):
                 return self.json(401, {"error": "Nicht autorisiert"})
             if self.command == "GET" and self.path == "/v1/health":
                 return self.json(200, {"protocol": PROTOCOL, "lease_seconds": LEASE,
-                                       "full_markdown": True, "audio_format": "mp3", "max_markdown_bytes": MAX_TEXT})
+                                       "full_markdown": True, "audio_format": "mp3",
+                                       "chunk_progress": True, "max_markdown_bytes": MAX_TEXT})
             session_match = re.fullmatch(r"/v1/sessions/(" + UUID_PATTERN + r")", self.path)
             if session_match and self.command == "DELETE":
                 try:

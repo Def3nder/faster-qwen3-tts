@@ -3,9 +3,49 @@
 import argparse
 import runpy
 from pathlib import Path
+import re
 import sys
 import json
 from contextlib import redirect_stdout
+
+
+CHUNK_PROGRESS = re.compile(
+    r"^Chunk \d+/\d+: \d+/\d+ characters \(boundary: [^)]+\)$"
+)
+
+
+class ChunkProgressRelay:
+    """Verwirft Modellmeldungen und reicht nur vollständige Chunk-Starts als NDJSON weiter."""
+    def __init__(self, protocol, job_id):
+        self.protocol = protocol
+        self.job_id = job_id
+        self.buffer = ""
+
+    def write(self, value):
+        self.buffer += value
+        while "\n" in self.buffer:
+            line, self.buffer = self.buffer.split("\n", 1)
+            self._emit(line.rstrip("\r"))
+        return len(value)
+
+    def flush(self):
+        self.protocol.flush()
+
+    def finish(self):
+        if self.buffer:
+            self._emit(self.buffer.rstrip("\r"))
+            self.buffer = ""
+        self.protocol.flush()
+
+    def isatty(self):
+        return False
+
+    def _emit(self, line):
+        if CHUNK_PROGRESS.fullmatch(line):
+            self.protocol.write(json.dumps({
+                "type": "progress", "id": self.job_id, "message": line,
+            }) + "\n")
+            self.protocol.flush()
 
 
 def generate_article(script, config, source, output):
@@ -33,14 +73,19 @@ def main():
     args = parser.parse_args()
     # stdout ist ausschließlich das interne NDJSON-Protokoll. Modellmeldungen
     # dürfen keine Ergebnisnachricht vortäuschen oder den Reader blockieren.
-    print(json.dumps({"type": "ready"}), flush=True)
+    protocol = sys.stdout
+    print(json.dumps({"type": "ready"}), file=protocol, flush=True)
     command = json.loads(sys.stdin.readline())
     source = Path(command["input"])
     if not 0 < source.stat().st_size <= 1_000_000:
         raise ValueError("Markdown muss 1 bis 1.000.000 UTF-8-Bytes enthalten")
-    with redirect_stdout(sys.stderr):
-        generate_article(args.script.resolve(), args.config.resolve(), source, Path(command["output"]))
-    print(json.dumps({"type": "result", "id": command["id"]}), flush=True)
+    progress = ChunkProgressRelay(protocol, command["id"])
+    try:
+        with redirect_stdout(progress):
+            generate_article(args.script.resolve(), args.config.resolve(), source, Path(command["output"]))
+    finally:
+        progress.finish()
+    print(json.dumps({"type": "result", "id": command["id"]}), file=protocol, flush=True)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 """Offline-Vertragstests mit simuliertem CLI-Generator; kein Modellimport."""
 import json
+import io
 from pathlib import Path
 import tempfile
 import threading
@@ -8,7 +9,7 @@ import unittest
 import urllib.error
 import urllib.request
 import uuid
-from qwen_chunk_worker import generate_article
+from qwen_chunk_worker import ChunkProgressRelay, generate_article
 from http.server import ThreadingHTTPServer
 from qwen_http_service import Jobs, handler, LEASE
 
@@ -25,6 +26,9 @@ for line in sys.stdin:
     text = Path(command["input"]).read_text(encoding="utf-8")
     if text == "wait": time.sleep(60)
     if text == "fail": sys.exit(1)
+    if text == "progress":
+        print(json.dumps({"type": "progress", "id": command["id"], "message": "Chunk 1/2: 338/520 characters (boundary: sentence)"}), flush=True)
+        print(json.dumps({"type": "progress", "id": command["id"], "message": "Chunk 2/2: 346/520 characters (boundary: paragraph)"}), flush=True)
     Path(command["output"]).write_bytes(b"simulated-mp3")
     print(json.dumps({"type": "result", "id": command["id"], "seed": 124 if text == "drift" else 123}), flush=True)
 ''')
@@ -62,9 +66,10 @@ for line in sys.stdin:
             self.request("health", token="wrong")
         self.assertEqual(error.exception.code, 401)
         health = json.loads(self.request("health"))
-        self.assertEqual(health["protocol"], "webarchiv-qwen-v4")
+        self.assertEqual(health["protocol"], "webarchiv-qwen-v5")
         self.assertTrue(health["full_markdown"])
         self.assertEqual(health["audio_format"], "mp3")
+        self.assertTrue(health["chunk_progress"])
         job_id = str(uuid.uuid4())
         for _ in range(2):
             self.request("jobs/" + job_id, "PUT", {"text": "Hallo"})
@@ -112,8 +117,30 @@ for line in sys.stdin:
         self.assertEqual(source.read_bytes(), markdown.encode("utf-8"))
         self.assertEqual(self.jobs.jobs[job_id]["output"].suffix, ".mp3")
 
+    def test_chunk_progress_is_numbered_and_returned_unchanged(self):
+        job_id = str(uuid.uuid4())
+        self.request("jobs/" + job_id, "PUT", {"text": "progress"})
+        state = self.wait(job_id)
+        self.assertEqual(state["status"], "succeeded")
+        self.assertEqual(state["progress"], [
+            {"sequence": 1, "message": "Chunk 1/2: 338/520 characters (boundary: sentence)"},
+            {"sequence": 2, "message": "Chunk 2/2: 346/520 characters (boundary: paragraph)"},
+        ])
+
 
 class OriginalScript(unittest.TestCase):
+    def test_progress_relay_discards_everything_except_chunk_starts(self):
+        protocol = io.StringIO()
+        relay = ChunkProgressRelay(protocol, "job-id")
+        relay.write("Prefill length: 115 tokens\n")
+        relay.write("Chunk 3/26: 346/520 characters ")
+        relay.write("(boundary: paragraph)\nSaved C:/teil-003.wav\n")
+        relay.finish()
+        self.assertEqual([json.loads(line) for line in protocol.getvalue().splitlines()], [{
+            "type": "progress", "id": "job-id",
+            "message": "Chunk 3/26: 346/520 characters (boundary: paragraph)",
+        }])
+
     def test_exact_cli_arguments_and_original_main(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
