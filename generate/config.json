@@ -26,7 +26,7 @@
   "min_chunk_chars": 220,
   "max_chunk_chars": 520,
   "text_preroll_enabled": true,
-  "text_preroll_sentence": "Dies ist ein kurzer technischer Vorspann.\n\n.",
+  "text_preroll_sentence": "Der Tag kommt zu einem Ende.\n\n.",
   "text_preroll_search_window_ms": 1200,
   "text_preroll_min_pause_ms": 120,
   "text_preroll_lead_in_ms": 30,

@@ -47,7 +47,7 @@ der Vorschau und in temporären Batch-Dateien erzeugt.
 | Bedienung während des Batchs | Dateiplan, Gliederung, Vorschau und Protokoll bleiben scrollbar beziehungsweise auswählbar. Gesperrt sind sämtliche inhaltlichen und laufrelevanten Änderungen: Quelldatei, Ausgabeordner, Teilung und Bereiche, MP3-Auswahl und -Titel, Textaufbereitung, Stimme und Chunking, Vorleseregeln sowie Pause/GPU-Steuerung. Theme-Umschaltung und Abbruch bleiben verfügbar. |
 | Konfigurierbare Wartezeit | Bereich 0 bis 3600 Sekunden, eine Nachkommastelle; Standard 10,0 Sekunden. |
 | NVIDIA-Zieltemperatur | Optional per `nvidia-smi`; Standard aktiv, GPU 0, Grenzwert strikt **unter** 65 °C. |
-| Temperatur während der Erzeugung | Die Fußzeile fragt die gewählte NVIDIA-GPU ungefähr alle zwei Sekunden ab und zeigt den aktuellen Wert während Generatorlauf und Kühlpause. |
+| Permanente GPU-Temperatur | Die Fußzeile fragt die gewählte NVIDIA-GPU vom Start bis zum Schließen der Oberfläche ungefähr alle zwei Sekunden ab – auch ohne aktiven Batch. |
 | Keine maximale Wartezeit | Absichtlich umgesetzt. Solange die Temperatur nicht unter dem Grenzwert liegt, wartet die Anwendung unbegrenzt. |
 | Stimme konfigurierbar | Auswahl eines vorhandenen `.pt`-Sprecher-Embeddings. |
 | Sprache konfigurierbar | Vorbelegt mit `German`; angeboten werden außerdem `English`, `French`, `Spanish`, `Italian` und `Auto`; das Feld ist frei editierbar. |
@@ -398,6 +398,9 @@ Im Ausgabeordner entsteht `.audiobook_batch` mit:
 
 - Existiert die Ziel-MP3 bereits, wird sie als `Übersprungen` markiert.
 - Dadurch kann ein abgebrochener Batch grundsätzlich erneut gestartet werden.
+- Beim Start und Wiederaufnehmen zeigt der Fortschrittsbalken dynamisch
+  `erledigt/gesamt` an, einschließlich bereits vorhandener und deshalb
+  übersprungener MP3-Dateien. Die Beschriftung wächst mit jedem fertigen Segment mit.
 - Es gibt derzeit keinen Inhalts-Hash und keine Prüfung, ob eine vorhandene MP3
   noch zur aktuellen Quelle oder zu den aktuellen Regeln passt.
 - Soll eine Datei nach Text- oder Regeländerungen neu erzeugt werden, muss die
@@ -418,8 +421,9 @@ Nach jeder erfolgreich erzeugten Datei, außer nach der letzten, beginnt die
 Kühlphase.
 
 - Die Mindestpause läuft immer vollständig ab.
-- Während des gesamten Batchlaufs wird die Temperatur ungefähr alle zwei Sekunden
-  in der Fußzeile aktualisiert, auch während der Generatorprozess läuft.
+- Vom Start bis zum Schließen der Oberfläche wird die Temperatur ungefähr alle zwei
+  Sekunden in der Fußzeile aktualisiert. Die Anzeige läuft im Bereitschaftszustand,
+  während der Erzeugung und nach Abbruch oder Abschluss eines Batchs weiter.
 - Während der Kühlphase zeigt der Batch-Status nur die verbleibende Mindestpause
   in ganzen, aufgerundeten Sekunden beziehungsweise das Warten auf den Grenzwert.
   Die aktuelle Temperatur steht ausschließlich im separaten GPU-Feld und wird

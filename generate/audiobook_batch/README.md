@@ -87,5 +87,6 @@ Nach jeder erzeugten Datei wartet die Anwendung mindestens die konfigurierte Zei
 Ist die Temperatursteuerung aktiv, beginnt die nächste Datei zusätzlich erst, wenn
 `nvidia-smi` für die gewählte GPU einen Wert **unter** dem Grenzwert meldet. Es gibt
 keine maximale Wartezeit. Ist `nvidia-smi` nicht verfügbar, gilt nur die Mindestpause.
-Während des gesamten Batchlaufs zeigt die Fußzeile die aktuelle GPU-Temperatur an und
-aktualisiert sie ungefähr alle zwei Sekunden – auch während eine MP3 erzeugt wird.
+Während der gesamten Laufzeit der Oberfläche zeigt die Fußzeile die aktuelle
+GPU-Temperatur an und aktualisiert sie ungefähr alle zwei Sekunden – unabhängig davon,
+ob gerade ein Batch läuft, eine MP3 erzeugt wird oder die Anwendung nur bereitsteht.

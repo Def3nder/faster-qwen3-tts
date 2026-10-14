@@ -11,7 +11,8 @@ from PySide6.QtWidgets import QApplication
 from generate.audiobook_batch.app import MainWindow
 
 
-def test_batch_lock_preserves_navigation_and_blocks_mutations() -> None:
+def test_batch_lock_preserves_navigation_and_blocks_mutations(monkeypatch) -> None:
+    monkeypatch.setattr(MainWindow, "_read_gpu_temperature", lambda self: 55)
     application = QApplication.instance() or QApplication([])
     window = MainWindow()
     try:
@@ -81,5 +82,32 @@ def test_batch_lock_preserves_navigation_and_blocks_mutations() -> None:
             window.plan_table.item(0, 2).flags() & Qt.ItemFlag.ItemIsEditable
         )
     finally:
+        window.gpu_timer.stop()
+        window.close()
+        application.processEvents()
+
+
+def test_running_progress_text_and_gpu_timer_survive_batch_finish(monkeypatch) -> None:
+    monkeypatch.setattr(MainWindow, "_read_gpu_temperature", lambda self: 55)
+    application = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    try:
+        window.total_jobs = 62
+        window.completed_jobs = 21
+        window._show_running_progress()
+
+        assert window.progress.value() == 21
+        assert window.progress.maximum() == 62
+        assert window.progress.text() == "21/62"
+
+        window.completed_jobs = 22
+        window.progress.setValue(window.completed_jobs)
+        assert window.progress.text() == "22/62"
+
+        assert window.gpu_timer.isActive()
+        window._finish_batch("Abgebrochen")
+        assert window.gpu_timer.isActive()
+    finally:
+        window.gpu_timer.stop()
         window.close()
         application.processEvents()

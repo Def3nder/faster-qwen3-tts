@@ -386,6 +386,7 @@ class MainWindow(QMainWindow):
         self.batch_active = False
         self.cooldown_started = 0.0
         self.gpu_unavailable_reported = False
+        self._last_temperature: int | None = None
         self.theme_name = "dark"
 
         self._build_ui()
@@ -399,6 +400,11 @@ class MainWindow(QMainWindow):
         self.gpu_timer = QTimer(self)
         self.gpu_timer.setInterval(2000)
         self.gpu_timer.timeout.connect(self._update_live_gpu_temperature)
+        self.gpu_timer.start()
+        self.gpu_index.valueChanged.connect(
+            lambda _value: QTimer.singleShot(0, self._update_live_gpu_temperature)
+        )
+        QTimer.singleShot(0, self._update_live_gpu_temperature)
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -1393,18 +1399,19 @@ class MainWindow(QMainWindow):
                 self._set_row_status(row, "Wartet")
         self.total_jobs = len(rows)
         self.cancel_requested = False
-        self._last_temperature = None
-        self.progress.setRange(0, max(1, self.total_jobs))
-        self.progress.setValue(self.completed_jobs)
+        self._show_running_progress()
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self._set_batch_edit_lock(True)
-        self.gpu_timer.start()
-        self._update_live_gpu_temperature()
         self._save_settings()
         self._write_manifest()
         self._append_log(f"Batch gestartet: {self.total_jobs} geplante Dateien · Ausgabe {output}")
         self._start_next_job()
+
+    def _show_running_progress(self) -> None:
+        self.progress.setRange(0, max(1, self.total_jobs))
+        self.progress.setValue(self.completed_jobs)
+        self.progress.setFormat("%v/%m")
 
     def _start_next_job(self) -> None:
         if self.cancel_requested:
@@ -1565,7 +1572,6 @@ class MainWindow(QMainWindow):
 
     def _finish_batch(self, message: str) -> None:
         self.cooldown_timer.stop()
-        self.gpu_timer.stop()
         self.process = None
         self.batch_queue.clear()
         self.current_row = None
