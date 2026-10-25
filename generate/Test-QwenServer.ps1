@@ -49,8 +49,8 @@ try {
         }
         throw 'Health-Pruefung fehlgeschlagen. Verbindung, TLS und HTTP-Dienst pruefen.'
     }
-    if ($health.protocol -ne 'webarchiv-qwen-v2' -or $health.single_chunk -ne $true -or $health.audio_format -ne 'wav') {
-        throw 'HTTP-Bruecke und qwen_chunk_worker.py auf dem Modellserver aktualisieren: webarchiv-qwen-v2 wird benoetigt.'
+    if ($health.protocol -ne 'webarchiv-qwen-v5' -or $health.full_markdown -ne $true -or $health.audio_format -ne 'mp3') {
+        throw 'HTTP-Bruecke und qwen_chunk_worker.py auf dem Modellserver aktualisieren: webarchiv-qwen-v5 wird benoetigt.'
     }
     Write-Host 'Erfolgreich: Qwen-HTTP-Dienst erreichbar und Token akzeptiert.' -ForegroundColor Green
     Write-Host 'Es wurde keine Synthese gestartet. Modell und Stimme sind damit noch nicht getestet.'

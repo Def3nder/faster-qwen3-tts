@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Vollständiges Markdown über das Originalscript in eine fertige MP3 umwandeln."""
 import argparse
-import runpy
 from pathlib import Path
 import re
+import subprocess
 import sys
 import json
 from contextlib import redirect_stdout
@@ -48,22 +48,37 @@ class ChunkProgressRelay:
             self.protocol.flush()
 
 
-def generate_article(script, config, source, output):
-    previous_argv = sys.argv
-    previous_path = sys.path[:]
+def generate_article(script, config, source, output, speaker=None):
+    # Das Originalskript bewusst als echten CLI-Prozess starten. Insbesondere
+    # Modell-, CUDA- und Audiozustand dürfen nicht mit dem Protokoll-Worker
+    # geteilt werden; so entspricht die Synthese exakt einem lokalen Aufruf.
+    command = [
+        sys.executable, "-u", str(script),
+        "--config", str(config), "--input", str(source), "--output", str(output),
+    ]
+    if speaker is not None:
+        command.extend(["--speaker", str(speaker)])
+    process = subprocess.Popen(
+        command, cwd=str(script.parent), stdout=subprocess.PIPE,
+        stderr=None, text=True, encoding="utf-8", errors="replace", bufsize=1,
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+    )
     try:
-        # Genau der reguläre CLI-Aufruf. Keine Overrides für Markdown, Chunking,
-        # Seed, Warmup, Preroll, Sprache oder Audioexport.
-        sys.argv = [str(script), "--config", str(config), "--input", str(source), "--output", str(output)]
-        sys.path.insert(0, str(script.parent))
-        try:
-            runpy.run_path(str(script), run_name="__main__")
-        except SystemExit as error:
-            if error.code not in (None, 0):
-                raise RuntimeError(f"Qwen-Originalscript beendet: Exit {error.code}") from error
+        assert process.stdout is not None
+        for line in process.stdout:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+        return_code = process.wait()
+        if return_code != 0:
+            raise RuntimeError(f"Qwen-Originalscript beendet: Exit {return_code}")
+    except BaseException:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        raise
     finally:
-        sys.argv = previous_argv
-        sys.path[:] = previous_path
+        if process.stdout is not None:
+            process.stdout.close()
 
 
 def main():
@@ -82,7 +97,11 @@ def main():
     progress = ChunkProgressRelay(protocol, command["id"])
     try:
         with redirect_stdout(progress):
-            generate_article(args.script.resolve(), args.config.resolve(), source, Path(command["output"]))
+            speaker = command.get("speaker")
+            generate_article(
+                args.script.resolve(), args.config.resolve(), source,
+                Path(command["output"]), Path(speaker) if speaker else None,
+            )
     finally:
         progress.finish()
     print(json.dumps({"type": "result", "id": command["id"]}), file=protocol, flush=True)
