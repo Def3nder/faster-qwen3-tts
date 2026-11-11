@@ -13,5 +13,50 @@
   "size": 4236192,
   "reason": null,
   "fetched": true
+ },
+ {
+  "id": "5e175a30-e94b-4032-a4ea-dabf426f128c",
+  "kind": "article",
+  "outcome": "ok",
+  "label": "Das angeborene Bedürfnis einer Frau ist, gesehen, gehört und verstanden zu we...",
+  "voice": "Sachbuch-Autor",
+  "characters": 5296,
+  "started": 1794420003.0159564,
+  "ended": 1794420177.260667,
+  "chunks": 14,
+  "chunk": 14,
+  "size": 2227968,
+  "reason": null,
+  "fetched": true
+ },
+ {
+  "id": "3b6bd9ef-1624-4e45-af43-1810a936d8bb",
+  "kind": "article",
+  "outcome": "ok",
+  "label": "Das angeborene Bedürfnis einer Frau ist, gesehen, gehört und verstanden zu we...",
+  "voice": "Sachbuch-Autor",
+  "characters": 5295,
+  "started": 1794420293.02414,
+  "ended": 1794420470.9666693,
+  "chunks": 14,
+  "chunk": 14,
+  "size": 2227200,
+  "reason": null,
+  "fetched": true
+ },
+ {
+  "id": "e8817fbf-64d8-4724-8c89-88684948251e",
+  "kind": "article",
+  "outcome": "ok",
+  "label": "Das angeborene Bedürfnis einer Frau ist, gesehen, gehört und verstanden zu we...",
+  "voice": "Sachbuch-Autor",
+  "characters": 5295,
+  "started": 1794420688.574481,
+  "ended": 1794420864.4365141,
+  "chunks": 14,
+  "chunk": 14,
+  "size": 2193648,
+  "reason": null,
+  "fetched": true
  }
 ]
