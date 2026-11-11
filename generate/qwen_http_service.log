@@ -1,0 +1,159 @@
+[2026-11-06 09:35:25] Qwen-TTS-Dienst bereit auf 0.0.0.0:8765 (Debug-Level 0, Stimmenverwaltung aktiv, Log E:\Code\faster-qwen3-tts\generate\qwen_http_service.log)
+
+[2026-11-06 09:35:25] Start: {"protocol": "webarchiv-qwen-v5", "port": 8765}
+                      Generator: E:\Code\faster-qwen3-tts\generate\generate_mp3_with_embedding.py
+                      Konfiguration: E:\Code\faster-qwen3-tts\generate\qwen_http_service_config.json
+                      Worker: E:\Code\faster-qwen3-tts\generate\qwen_chunk_worker.py
+                      Python: E:\Code\faster-qwen3-tts\.venv\Scripts\python.exe
+                      Token: 78 Zeichen (Inhalt wird nie ausgegeben)
+[2026-11-06 09:35:25] Stimmenordner: E:\Code\faster-qwen3-tts\voices
+                      Stimmen-Extraktion: E:\Code\faster-qwen3-tts\examples\extract_speaker.py (Qwen/Qwen3-TTS-12Hz-1.7B-Base, cuda:0)
+[2026-11-06 09:49:53] HTTP GET /v1/health von 192.168.1.65 -> 401 (0 ms): Nicht autorisiert [Token stimmt nicht mit QWEN_TTS_TOKEN überein]
+[2026-11-06 09:49:58] HTTP GET /v1/voices von 192.168.1.65 -> 401 (0 ms): Nicht autorisiert [Token stimmt nicht mit QWEN_TTS_TOKEN überein]
+[2026-11-06 09:49:58] HTTP GET /v1/settings von 192.168.1.65 -> 401 (0 ms): Nicht autorisiert [Token stimmt nicht mit QWEN_TTS_TOKEN überein]
+[2026-11-06 09:49:58] HTTP GET /v1/health von 192.168.1.65 -> 401 (0 ms): Nicht autorisiert [Token stimmt nicht mit QWEN_TTS_TOKEN überein]
+[2026-11-06 09:50:16] HTTP GET /v1/health von 192.168.1.65 -> 401 (0 ms): Nicht autorisiert [Authorization-Header fehlt]
+[2026-11-06 09:50:16] HTTP GET /v1/health von 192.168.1.200 -> 401 (0 ms): Nicht autorisiert [Authorization-Header fehlt]
+[2026-11-06 09:51:53] HTTP GET /v1/health von 192.168.1.65 -> 401 (0 ms): Nicht autorisiert [Token stimmt nicht mit QWEN_TTS_TOKEN überein]
+[2026-11-06 09:53:30] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 09:54:22] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 09:54:42] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:14:32] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:15:40] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:16:01] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:16:28] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:17:12] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:17:47] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:18:29] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:18:56] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:19:14] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:19:32] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:19:50] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:20:02] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:21:29] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:21:56] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:22:11] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:22:22] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:22:43] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:22:59] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:23:24] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:24:24] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:24:45] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:24:49] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:25:30] Qwen-TTS-Dienst wird beendet
+[2026-11-06 10:26:24] Qwen-TTS-Dienst bereit auf 0.0.0.0:8765 (Debug-Level 0, Stimmenverwaltung aktiv, Log E:\Code\faster-qwen3-tts\generate\qwen_http_service.log)
+
+[2026-11-06 10:26:24] Start: {"protocol": "webarchiv-qwen-v5", "port": 8765}
+                      Generator: E:\Code\faster-qwen3-tts\generate\generate_mp3_with_embedding.py
+                      Konfiguration: E:\Code\faster-qwen3-tts\generate\qwen_http_service_config.json
+                      Worker: E:\Code\faster-qwen3-tts\generate\qwen_chunk_worker.py
+                      Python: E:\Code\faster-qwen3-tts\.venv\Scripts\python.exe
+                      Token: 78 Zeichen (Inhalt wird nie ausgegeben)
+[2026-11-06 10:26:24] Stimmenordner: E:\Code\faster-qwen3-tts\voices
+                      Stimmen-Extraktion: E:\Code\faster-qwen3-tts\examples\extract_speaker.py (Qwen/Qwen3-TTS-12Hz-1.7B-Base, cuda:0)
+[2026-11-06 10:27:55] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:34:02] Qwen-TTS-Dienst wird beendet
+[2026-11-06 10:34:07] Qwen-TTS-Dienst bereit auf 0.0.0.0:8765 (Debug-Level 0, Stimmenverwaltung aktiv, Log E:\Code\faster-qwen3-tts\generate\qwen_http_service.log)
+
+[2026-11-06 10:34:07] Start: {"protocol": "webarchiv-qwen-v5", "port": 8765}
+                      Generator: E:\Code\faster-qwen3-tts\generate\generate_mp3_with_embedding.py
+                      Konfiguration: E:\Code\faster-qwen3-tts\generate\qwen_http_service_config.json
+                      Worker: E:\Code\faster-qwen3-tts\generate\qwen_chunk_worker.py
+                      Python: E:\Code\faster-qwen3-tts\.venv\Scripts\python.exe
+                      Token: 78 Zeichen (Inhalt wird nie ausgegeben)
+[2026-11-06 10:34:07] Stimmenordner: E:\Code\faster-qwen3-tts\voices
+                      Stimmen-Extraktion: E:\Code\faster-qwen3-tts\examples\extract_speaker.py (Qwen/Qwen3-TTS-12Hz-1.7B-Base, cuda:0)
+[2026-11-06 10:34:11] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:41:43] Qwen-TTS-Dienst bereit auf 0.0.0.0:8765 (Debug-Level 0, Stimmenverwaltung aktiv, Log E:\Code\faster-qwen3-tts\generate\qwen_http_service.log)
+
+[2026-11-06 10:41:43] Start: {"protocol": "webarchiv-qwen-v5", "port": 8765}
+                      Generator: E:\Code\faster-qwen3-tts\generate\generate_mp3_with_embedding.py
+                      Konfiguration: E:\Code\faster-qwen3-tts\generate\qwen_http_service_config.json
+                      Worker: E:\Code\faster-qwen3-tts\generate\qwen_chunk_worker.py
+                      Python: E:\Code\faster-qwen3-tts\.venv\Scripts\python.exe
+                      Token: 78 Zeichen (Inhalt wird nie ausgegeben)
+[2026-11-06 10:41:43] Stimmenordner: E:\Code\faster-qwen3-tts\voices
+                      Stimmen-Extraktion: E:\Code\faster-qwen3-tts\examples\extract_speaker.py (Qwen/Qwen3-TTS-12Hz-1.7B-Base, cuda:0)
+[2026-11-06 10:41:48] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:43:19] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:44:39] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:45:39] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:46:21] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:46:24] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:46:24] HTTP GET /v1/settings von 192.168.1.16 -> 200 (15 ms)
+[2026-11-06 10:46:24] HTTP GET /v1/voices von 192.168.1.16 -> 200 (78 ms)
+[2026-11-06 10:46:25] HTTP GET /v1/settings von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:46:25] HTTP GET /v1/voices von 192.168.1.16 -> 200 (16 ms)
+[2026-11-06 10:46:25] HTTP GET /v1/voices von 192.168.1.16 -> 200 (16 ms)
+[2026-11-06 10:46:25] HTTP GET /v1/voices von 192.168.1.16 -> 200 (16 ms)
+[2026-11-06 10:47:21] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:49:21] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:50:19] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:50:20] HTTP GET /v1/settings von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:50:20] HTTP GET /v1/voices von 192.168.1.16 -> 200 (63 ms)
+[2026-11-06 10:50:20] HTTP GET /v1/settings von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:50:20] HTTP GET /v1/voices von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:50:20] HTTP GET /v1/voices von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:50:20] HTTP GET /v1/voices von 192.168.1.16 -> 200 (15 ms)
+[2026-11-06 10:50:20] HTTP GET /v1/voices von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:51:12] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:52:13] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:53:21] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:54:17] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 10:55:12] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:55:28] Qwen-TTS-Dienst wird beendet
+[2026-11-06 10:56:22] Qwen-TTS-Dienst bereit auf 192.168.1.65:8765 (alle Schnittstellen) (Debug-Level 0, Stimmenverwaltung aktiv, Log E:\Code\faster-qwen3-tts\generate\qwen_http_service.log)
+
+[2026-11-06 10:56:22] Gebunden an 0.0.0.0:8765; Adressen dieses Rechners: 192.168.1.65, 192.168.186.1, 192.168.67.1, 172.17.144.1 (die erste ist die der Standardroute)
+[2026-11-06 10:56:22] Start: {"protocol": "webarchiv-qwen-v5", "port": 8765}
+                      Generator: E:\Code\faster-qwen3-tts\generate\generate_mp3_with_embedding.py
+                      Konfiguration: E:\Code\faster-qwen3-tts\generate\qwen_http_service_config.json
+                      Worker: E:\Code\faster-qwen3-tts\generate\qwen_chunk_worker.py
+                      Python: E:\Code\faster-qwen3-tts\.venv\Scripts\python.exe
+                      Token: 78 Zeichen (Inhalt wird nie ausgegeben)
+[2026-11-06 10:56:22] Stimmenordner: E:\Code\faster-qwen3-tts\voices
+                      Stimmen-Extraktion: E:\Code\faster-qwen3-tts\examples\extract_speaker.py (Qwen/Qwen3-TTS-12Hz-1.7B-Base, cuda:0)
+[2026-11-06 10:56:23] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:58:13] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 10:59:13] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:00:21] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:02:13] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:03:21] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:03:47] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:03:47] HTTP GET /v1/settings von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:03:47] HTTP GET /v1/voices von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:03:47] HTTP GET /v1/settings von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:03:47] HTTP GET /v1/voices von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:03:47] HTTP GET /v1/voices von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:03:47] HTTP GET /v1/voices von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:04:17] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:04:17] HTTP GET /v1/settings von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:04:17] HTTP GET /v1/voices von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:04:17] HTTP GET /v1/settings von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:04:17] HTTP GET /v1/voices von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:04:17] HTTP GET /v1/voices von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:04:17] HTTP GET /v1/voices von 192.168.1.16 -> 200 (16 ms)
+[2026-11-06 11:04:17] HTTP GET /v1/voices von 192.168.1.16 -> 200 (15 ms)
+[2026-11-06 11:04:44] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:04:46] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 11:05:18] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 11:05:35] HTTP GET /v1/health von 192.168.1.65 -> 200 (0 ms)
+[2026-11-06 11:06:14] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:07:14] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:14:17] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 11:15:20] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 12:20:27] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-06 14:34:01] Netzwerkadresse geändert: 192.168.1.65 -> 192.168.1.200. Im WebArchiv unter „TTS-Einstellungen“ 192.168.1.200:8765 eintragen.
+
+[2026-11-06 16:58:11] Netzwerkadresse geändert: 192.168.1.200 -> 192.168.1.65. Im WebArchiv unter „TTS-Einstellungen“ 192.168.1.65:8765 eintragen.
+
+[2026-11-06 16:58:41] Netzwerkadresse geändert: 192.168.1.65 -> 192.168.1.200. Im WebArchiv unter „TTS-Einstellungen“ 192.168.1.200:8765 eintragen.
+
+[2026-11-06 17:00:12] Netzwerkadresse geändert: 192.168.1.200 -> 192.168.186.1. Im WebArchiv unter „TTS-Einstellungen“ 192.168.186.1:8765 eintragen.
+
+[2026-11-06 17:00:42] Netzwerkadresse geändert: 192.168.186.1 -> 192.168.1.200. Im WebArchiv unter „TTS-Einstellungen“ 192.168.1.200:8765 eintragen.
+
+[2026-11-08 13:29:02] Netzwerkadresse geändert: 192.168.1.200 -> 192.168.186.1. Im WebArchiv unter „TTS-Einstellungen“ 192.168.186.1:8765 eintragen.
+
+[2026-11-08 13:29:32] Netzwerkadresse geändert: 192.168.186.1 -> 192.168.1.200. Im WebArchiv unter „TTS-Einstellungen“ 192.168.1.200:8765 eintragen.
+

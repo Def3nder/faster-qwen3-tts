@@ -5,4 +5,4 @@ E:\Code\faster-qwen3-tts\.venv\Scripts\python.exe E:\Code\faster-qwen3-tts\gener
   --voices-dir E:\Code\faster-qwen3-tts\voices ^
   --extract-script E:\Code\faster-qwen3-tts\examples\extract_speaker.py ^
   --voice-model Qwen/Qwen3-TTS-12Hz-1.7B-Base ^
-  --host 0.0.0.0 --port 8765
+  --host 0.0.0.0 --port 8765 %*

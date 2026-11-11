@@ -15,10 +15,15 @@ CHUNK_PROGRESS = re.compile(
 
 
 class ChunkProgressRelay:
-    """Verwirft Modellmeldungen und reicht nur vollständige Chunk-Starts als NDJSON weiter."""
-    def __init__(self, protocol, job_id):
+    """Reicht nur vollständige Chunk-Starts als NDJSON weiter.
+
+    Alle übrigen Modellmeldungen gelangen nie ins Protokoll; mit `passthrough`
+    (stderr) kann der HTTP-Dienst sie für Fehlermeldungen und `--debug 3` lesen.
+    """
+    def __init__(self, protocol, job_id, passthrough=None):
         self.protocol = protocol
         self.job_id = job_id
+        self.passthrough = passthrough
         self.buffer = ""
 
     def write(self, value):
@@ -46,6 +51,9 @@ class ChunkProgressRelay:
                 "type": "progress", "id": self.job_id, "message": line,
             }) + "\n")
             self.protocol.flush()
+        elif self.passthrough is not None and line.strip():
+            self.passthrough.write(line + "\n")
+            self.passthrough.flush()
 
 
 def generate_article(script, config, source, output, speaker=None):
@@ -94,7 +102,7 @@ def main():
     source = Path(command["input"])
     if not 0 < source.stat().st_size <= 1_000_000:
         raise ValueError("Markdown muss 1 bis 1.000.000 UTF-8-Bytes enthalten")
-    progress = ChunkProgressRelay(protocol, command["id"])
+    progress = ChunkProgressRelay(protocol, command["id"], passthrough=sys.stderr)
     try:
         with redirect_stdout(progress):
             speaker = command.get("speaker")

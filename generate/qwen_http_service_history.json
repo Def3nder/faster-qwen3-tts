@@ -1,0 +1,17 @@
+[
+ {
+  "id": "7b9c6829-ba0c-42dc-a416-fd7bc5bd6bea",
+  "kind": "article",
+  "outcome": "ok",
+  "label": "Zoom Session 9. November 2026",
+  "voice": "Sachbuch-Autor",
+  "characters": 9816,
+  "started": 1794405633.5012298,
+  "ended": 1794405951.771047,
+  "chunks": 24,
+  "chunk": 24,
+  "size": 4236192,
+  "reason": null,
+  "fetched": true
+ }
+]
