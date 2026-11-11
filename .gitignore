@@ -17,6 +17,7 @@ output/
 voices/
 samples/*.mp3
 samples/*/*.mp3
+*.log
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/

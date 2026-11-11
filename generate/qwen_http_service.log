@@ -157,3 +157,67 @@
 
 [2026-11-08 13:29:32] Netzwerkadresse geändert: 192.168.186.1 -> 192.168.1.200. Im WebArchiv unter „TTS-Einstellungen“ 192.168.1.200:8765 eintragen.
 
+[2026-11-11 11:48:46] Qwen-TTS-Dienst bereit auf 192.168.1.200:8765 (alle Schnittstellen) (Debug-Level 0, Stimmenverwaltung aktiv, Log E:\Code\faster-qwen3-tts\generate\qwen_http_service.log)
+
+[2026-11-11 11:48:46] Gebunden an 0.0.0.0:8765; Adressen dieses Rechners: 192.168.1.200, 192.168.186.1, 192.168.67.1, 172.30.240.1 (die erste ist die der Standardroute)
+[2026-11-11 11:48:46] Start: {"protocol": "webarchiv-qwen-v5", "port": 8765}
+                      Generator: E:\Code\faster-qwen3-tts\generate\generate_mp3_with_embedding.py
+                      Konfiguration: E:\Code\faster-qwen3-tts\generate\qwen_http_service_config.json
+                      Worker: E:\Code\faster-qwen3-tts\generate\qwen_chunk_worker.py
+                      Python: E:\Code\faster-qwen3-tts\.venv\Scripts\python.exe
+                      Token: 78 Zeichen (Inhalt wird nie ausgegeben)
+[2026-11-11 11:48:46] Stimmenordner: E:\Code\faster-qwen3-tts\voices
+                      Stimmen-Extraktion: E:\Code\faster-qwen3-tts\examples\extract_speaker.py (Qwen/Qwen3-TTS-12Hz-1.7B-Base, cuda:0)
+[2026-11-11 12:31:19] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 12:31:19] HTTP GET /v1/settings von 192.168.1.16 -> 200 (16 ms)
+[2026-11-11 12:31:19] HTTP GET /v1/voices von 192.168.1.16 -> 200 (94 ms)
+[2026-11-11 12:31:19] HTTP GET /v1/voices von 192.168.1.16 -> 200 (16 ms)
+[2026-11-11 12:31:27] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 12:31:27] HTTP GET /v1/settings von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 12:31:27] HTTP GET /v1/voices von 192.168.1.16 -> 200 (15 ms)
+[2026-11-11 12:31:47] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 12:32:47] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 12:32:58] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 12:32:58] HTTP GET /v1/settings von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 12:32:58] HTTP GET /v1/voices von 192.168.1.16 -> 200 (16 ms)
+[2026-11-11 12:32:58] HTTP GET /v1/voices von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 12:33:22] HTTP GET /v1/voices von 192.168.1.16 -> 200 (16 ms)
+[2026-11-11 12:33:23] HTTP GET /v1/voices von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 12:39:27] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 13:01:28] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 13:02:31] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 13:03:47] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 13:05:36] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 13:06:36] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 13:07:36] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 13:09:20] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 13:10:36] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 13:11:36] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 13:13:36] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 13:15:36] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 13:16:36] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 13:18:30] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 14:41:07] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 14:56:42] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 14:58:41] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 14:59:41] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 15:00:30] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 15:00:33] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 15:00:33] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 15:00:33] Worker gestartet [7b9c6829] (PID 45668)
+[2026-11-11 15:00:33] Neuer Auftrag erhalten [7b9c6829]: "Zoom Session 9. November 2026" (9.816 Zeichen, Stimme Sachbuch-Autor)
+[2026-11-11 15:00:33] HTTP PUT /v1/jobs/7b9c6829-ba0c-42dc-a416-fd7bc5bd6bea von 192.168.1.16 -> 202 (15 ms)
+[2026-11-11 15:00:33] Worker bereit [7b9c6829]
+[2026-11-11 15:05:51] MP3 erstellt [7b9c6829]: "Zoom Session 9. November 2026" (4.0 MB, Dauer 5 min 18 s, 24 Chunks)
+
+[2026-11-11 15:05:52] HTTP GET /v1/jobs/7b9c6829-ba0c-42dc-a416-fd7bc5bd6bea/audio von 192.168.1.16 -> 200 (47 ms) [MP3 4.0 MB ausgeliefert]
+[2026-11-11 15:05:52] Auftrag [7b9c6829] aufgeräumt (Status war succeeded)
+[2026-11-11 15:05:52] HTTP DELETE /v1/jobs/7b9c6829-ba0c-42dc-a416-fd7bc5bd6bea von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 15:07:55] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 15:09:55] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 15:11:55] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 15:12:55] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 15:17:12] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 15:18:16] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 15:19:16] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
+[2026-11-11 15:21:05] HTTP GET /v1/health von 192.168.1.16 -> 200 (0 ms)
