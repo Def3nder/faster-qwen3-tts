@@ -18,6 +18,7 @@ voices/
 samples/*.mp3
 samples/*/*.mp3
 *.log
+generate/qwen_http_service*
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
